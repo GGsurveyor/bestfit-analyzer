@@ -4,11 +4,11 @@ import pandas as pd
 import streamlit as st
 
 
-# Define BestFit Core Calculation Engine
 class BestFitEngine:
 
   @staticmethod
-  def best_fit(measured, design):
+  def best_fit_3d(measured, design):
+    """3D BestFit: Full 6 DOF (X, Y, Z translation + 3D rotation)"""
     centroid_m = np.mean(measured, axis=0)
     centroid_d = np.mean(design, axis=0)
     m_centered = measured - centroid_m
@@ -23,23 +23,60 @@ class BestFitEngine:
     return R, T
 
   @staticmethod
-  def apply_transform(measured, R, T):
-    return np.dot(measured, R.T) + T
+  def best_fit_2d(measured, design):
+    """2D BestFit: Restricted to XY plane (X, Y translation + 2D rotation around Z)"""
+    # Extract only X and Y coordinates for 2D alignment computation
+    m_xy = measured[:, :2]
+    d_xy = design[:, :2]
+
+    centroid_m = np.mean(m_xy, axis=0)
+    centroid_d = np.mean(d_xy, axis=0)
+
+    m_centered = m_xy - centroid_m
+    d_centered = d_xy - centroid_d
+
+    H = np.dot(m_centered.T, d_centered)
+    U, S, Vt = np.linalg.svd(H)
+
+    # 2D Rotation matrix
+    R_2d = np.dot(Vt.T, U.T)
+    if np.linalg.det(R_2d) < 0:
+      Vt[1, :] *= -1
+      R_2d = np.dot(Vt.T, U.T)
+
+    T_2d = centroid_d - np.dot(R_2d, centroid_m)
+
+    # Construct full 3D transformation matrices where Z has no rotation/translation change
+    R = np.eye(3)
+    R[:2, :2] = R_2d
+
+    T = np.zeros(3)
+    T[:2] = T_2d
+    # Z translation can be kept 0 or averaged, usually 0 in pure 2D profile alignment
+    T[2] = np.mean(design[:, 2]) - np.mean(measured[:, 2])
+
+    return R, T
 
 
 # Streamlit Web Page Layout
 st.set_page_config(
-    page_title="3D BestFit Alignment Tool", page_icon="📐", layout="wide"
+    page_title="3D/2D BestFit Alignment Tool", page_icon="📐", layout="wide"
 )
 
-st.title("📐 3D BestFit Alignment & Analysis System - Made by Ng Yit Fung")
+st.title("📐 3D / 2D BestFit Alignment & Analysis System")
 st.markdown(
-    "Upload your **Design CSV file** and **Before Bestfit CSV file**."
-    " The system will automatically calculate the optimal rotation matrix,"
-    " translation vector, and aligned coordinates."
+    "Upload your **Design CSV file** and **Before Bestfit CSV file**, select"
+    " your alignment mode, and compute the results."
 )
 
-# Sidebar File Uploader
+# Sidebar Options & File Uploader
+st.sidebar.header("⚙️ Alignment Settings")
+alignment_mode = st.sidebar.selectbox(
+    "Select BestFit Mode",
+    options=["3D BestFit (Full 6 DOF)", "2D BestFit (XY Plane Constraint)"],
+)
+
+st.sidebar.markdown("---")
 st.sidebar.header("📂 Upload Measurement Data")
 uploaded_design = st.sidebar.file_uploader(
     "Upload Design CSV File", type=["csv"]
@@ -67,26 +104,29 @@ if uploaded_design is not None and uploaded_before is not None:
     if len(common_points) < 3:
       st.error(
           "Error: The number of common points is less than 3, unable to"
-          " perform 3D BestFit calculation!"
+          " perform BestFit calculation!"
       )
     else:
       design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
       before_pts = df_before.loc[common_points, ["X", "Y", "Z"]].values
 
-      # Run Algorithm
-      R, T = BestFitEngine.best_fit(before_pts, design_pts)
+      # Run Algorithm based on user choice
+      if "3D" in alignment_mode:
+        R, T = BestFitEngine.best_fit_3d(before_pts, design_pts)
+      else:
+        R, T = BestFitEngine.best_fit_2d(before_pts, design_pts)
 
-      # Apply to all data
+      # Apply transformation to all data
       all_before_pts = df_before[["X", "Y", "Z"]].values
-      transformed_pts = BestFitEngine.apply_transform(all_before_pts, R, T)
+      transformed_pts = np.dot(all_before_pts, R.T) + T
 
       df_after = pd.DataFrame(
           transformed_pts, index=df_before.index, columns=["X", "Y", "Z"]
       )
 
-      # Display Transformation Matrices
+      # Display Transformation Results
       st.markdown("---")
-      st.subheader("📊 Spatial Transformation Matrix Results")
+      st.subheader(f"📊 Spatial Transformation Results ({alignment_mode})")
       col1, col2 = st.columns(2)
       with col1:
         st.text("Rotation Matrix R:")
@@ -113,6 +153,6 @@ if uploaded_design is not None and uploaded_before is not None:
     st.error(f"An error occurred during processing: {e}")
 else:
   st.info(
-      "👈 Please upload both the **Design** and **Before** CSV files in the"
-      " left sidebar to begin."
+      "👈 Please select your mode and upload both the **Design** and"
+      " **Before** CSV files in the left sidebar to begin."
   )
