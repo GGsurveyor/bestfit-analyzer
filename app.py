@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 
-# 定义 BestFit 核心计算引擎
+# Define BestFit Core Calculation Engine
 class BestFitEngine:
 
   @staticmethod
@@ -27,27 +27,30 @@ class BestFitEngine:
     return np.dot(measured, R.T) + T
 
 
-# Streamlit 网页界面布局
-st.set_page_config(page_title="BestFit 测量对齐工具", page_icon="📐", layout="wide")
-
-st.title("📐 3D BestFit 自动对齐与分析系统")
-st.markdown(
-    "上传 **Design（设计文件）** 与 **Before Bestfit（测量前文件）**"
-    "，系统将自动计算出最优旋转矩阵、平移向量及对齐后的坐标结果。"
+# Streamlit Web Page Layout
+st.set_page_config(
+    page_title="3D BestFit Alignment Tool", page_icon="📐", layout="wide"
 )
 
-# 侧边栏文件上传
-st.sidebar.header("📂 上传测量数据")
+st.title("📐 3D BestFit Alignment & Analysis System - Made by Ng Yit Fung")
+st.markdown(
+    "Upload your **Design CSV file** and **Before Bestfit CSV file**."
+    " The system will automatically calculate the optimal rotation matrix,"
+    " translation vector, and aligned coordinates."
+)
+
+# Sidebar File Uploader
+st.sidebar.header("📂 Upload Measurement Data")
 uploaded_design = st.sidebar.file_uploader(
-    "上传 Design CSV 文件", type=["csv"]
+    "Upload Design CSV File", type=["csv"]
 )
 uploaded_before = st.sidebar.file_uploader(
-    "上传 Before Bestfit CSV 文件", type=["csv"]
+    "Upload Before Bestfit CSV File", type=["csv"]
 )
 
 if uploaded_design is not None and uploaded_before is not None:
   try:
-    # 读取数据
+    # Read Data
     df_design = pd.read_csv(
         uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
     )
@@ -58,55 +61,58 @@ if uploaded_design is not None and uploaded_before is not None:
     df_design.set_index("Point", inplace=True)
     df_before.set_index("Point", inplace=True)
 
-    # 提取共同点进行计算
+    # Extract common points for computation
     common_points = df_design.index.intersection(df_before.index)
 
     if len(common_points) < 3:
-      st.error("错误：共同点数量少于 3 个，无法进行 3D BestFit 计算！")
+      st.error(
+          "Error: The number of common points is less than 3, unable to"
+          " perform 3D BestFit calculation!"
+      )
     else:
       design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
       before_pts = df_before.loc[common_points, ["X", "Y", "Z"]].values
 
-      # 运行算法
+      # Run Algorithm
       R, T = BestFitEngine.best_fit(before_pts, design_pts)
 
-      # 应用到全量数据
+      # Apply to all data
       all_before_pts = df_before[["X", "Y", "Z"]].values
       transformed_pts = BestFitEngine.apply_transform(all_before_pts, R, T)
 
       df_after = pd.DataFrame(
-          transformed_pts,
-          index=df_before.index,
-          columns=["X", "N_Y" if False else "Y", "Z"],
-      )  # 修正列名
-      df_after.columns = ["X", "Y", "Z"]
+          transformed_pts, index=df_before.index, columns=["X", "Y", "Z"]
+      )
 
-      # 展示计算出的矩阵
+      # Display Transformation Matrices
       st.markdown("---")
-      st.subheader("📊 空间变换矩阵结果")
+      st.subheader("📊 Spatial Transformation Matrix Results")
       col1, col2 = st.columns(2)
       with col1:
-        st.text("旋转矩阵 R (Rotation):")
+        st.text("Rotation Matrix R:")
         st.write(R)
       with col2:
-        st.text("平移向量 T (Translation):")
+        st.text("Translation Vector T:")
         st.write(T)
 
-      # 展示对齐后的坐标表格
+      # Preview Aligned Coordinates
       st.markdown("---")
-      st.subheader("📋 计算后的 After Bestfit 坐标预览")
+      st.subheader("📋 Calculated After Bestfit Coordinates Preview")
       st.dataframe(df_after)
 
-      # 提供下载按钮
+      # Download Button
       csv_data = df_after.reset_index().to_csv(index=False, header=False)
       st.download_button(
-          label="📥 下载 After Bestfit 结果文件 (.CSV)",
+          label="📥 Download After Bestfit Result File (.CSV)",
           data=csv_data,
           file_name="LP22B_AW_calculated_after.CSV",
           mime="text/csv",
       )
 
   except Exception as e:
-    st.error(f"处理过程中出现错误: {e}")
+    st.error(f"An error occurred during processing: {e}")
 else:
-  st.info("👈 请在左侧侧边栏同时上传 **Design** 和 **Before** 两个 CSV 文件。")
+  st.info(
+      "👈 Please upload both the **Design** and **Before** CSV files in the"
+      " left sidebar to begin."
+  )
