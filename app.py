@@ -8,7 +8,6 @@ class BestFitEngine:
 
   @staticmethod
   def best_fit_3d(measured, design):
-    """3D BestFit: Full 6 DOF (X, Y, Z translation + 3D rotation)"""
     centroid_m = np.mean(measured, axis=0)
     centroid_d = np.mean(design, axis=0)
     m_centered = measured - centroid_m
@@ -24,52 +23,37 @@ class BestFitEngine:
 
   @staticmethod
   def best_fit_2d(measured, design):
-    """2D BestFit: Restricted to XY plane (X, Y translation + 2D rotation around Z)"""
-    # Extract only X and Y coordinates for 2D alignment computation
     m_xy = measured[:, :2]
     d_xy = design[:, :2]
-
     centroid_m = np.mean(m_xy, axis=0)
     centroid_d = np.mean(d_xy, axis=0)
-
     m_centered = m_xy - centroid_m
     d_centered = d_xy - centroid_d
-
     H = np.dot(m_centered.T, d_centered)
     U, S, Vt = np.linalg.svd(H)
-
-    # 2D Rotation matrix
     R_2d = np.dot(Vt.T, U.T)
     if np.linalg.det(R_2d) < 0:
       Vt[1, :] *= -1
       R_2d = np.dot(Vt.T, U.T)
-
     T_2d = centroid_d - np.dot(R_2d, centroid_m)
-
-    # Construct full 3D transformation matrices where Z has no rotation/translation change
     R = np.eye(3)
     R[:2, :2] = R_2d
-
     T = np.zeros(3)
     T[:2] = T_2d
-    # Z translation can be kept 0 or averaged, usually 0 in pure 2D profile alignment
     T[2] = np.mean(design[:, 2]) - np.mean(measured[:, 2])
-
     return R, T
 
 
-# Streamlit Web Page Layout
 st.set_page_config(
     page_title="3D/2D BestFit Alignment Tool", page_icon="📐", layout="wide"
 )
 
-st.title("📐 3D / 2D BestFit Alignment & Analysis System")
+st.title("📐 3D / 2D BestFit Alignment & Error Analysis System")
 st.markdown(
-    "Upload your **Design CSV file** and **Before Bestfit CSV file**, select"
-    " your alignment mode, and compute the results."
+    "Upload your **Design CSV file** and **Before Bestfit CSV file** to compute"
+    " alignment and view detailed point errors."
 )
 
-# Sidebar Options & File Uploader
 st.sidebar.header("⚙️ Alignment Settings")
 alignment_mode = st.sidebar.selectbox(
     "Select BestFit Mode",
@@ -87,7 +71,6 @@ uploaded_before = st.sidebar.file_uploader(
 
 if uploaded_design is not None and uploaded_before is not None:
   try:
-    # Read Data
     df_design = pd.read_csv(
         uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
     )
@@ -98,7 +81,6 @@ if uploaded_design is not None and uploaded_before is not None:
     df_design.set_index("Point", inplace=True)
     df_before.set_index("Point", inplace=True)
 
-    # Extract common points for computation
     common_points = df_design.index.intersection(df_before.index)
 
     if len(common_points) < 3:
@@ -110,7 +92,6 @@ if uploaded_design is not None and uploaded_before is not None:
       design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
       before_pts = df_before.loc[common_points, ["X", "Y", "Z"]].values
 
-      # Run Algorithm based on user choice
       if "3D" in alignment_mode:
         R, T = BestFitEngine.best_fit_3d(before_pts, design_pts)
       else:
@@ -119,12 +100,30 @@ if uploaded_design is not None and uploaded_before is not None:
       # Apply transformation to all data
       all_before_pts = df_before[["X", "Y", "Z"]].values
       transformed_pts = np.dot(all_before_pts, R.T) + T
-
       df_after = pd.DataFrame(
           transformed_pts, index=df_before.index, columns=["X", "Y", "Z"]
       )
 
-      # Display Transformation Results
+      # Calculate error for common points (Design vs Calculated After)
+      error_df = df_design.loc[common_points].copy()
+      error_df.rename(
+          columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
+          inplace=True,
+      )
+      error_df["After_X"] = df_after.loc[common_points, "X"]
+      error_df["After_Y"] = df_after.loc[common_points, "Y"]
+      error_df["After_Z"] = df_after.loc[common_points, "Z"]
+
+      error_df["Err_X"] = error_df["After_X"] - error_df["Design_X"]
+      error_df["Err_Y"] = error_df["After_Y"] - error_df["Design_Y"]
+      error_df["Err_Z"] = error_df["After_Z"] - error_df["Design_Z"]
+      error_df["Total_Error"] = np.sqrt(
+          error_df["Err_X"] ** 2
+          + error_df["Err_Y"] ** 2
+          + error_df["Err_Z"] ** 2
+      )
+
+      # UI Display
       st.markdown("---")
       st.subheader(f"📊 Spatial Transformation Results ({alignment_mode})")
       col1, col2 = st.columns(2)
@@ -135,12 +134,32 @@ if uploaded_design is not None and uploaded_before is not None:
         st.text("Translation Vector T:")
         st.write(T)
 
-      # Preview Aligned Coordinates
       st.markdown("---")
-      st.subheader("📋 Calculated After Bestfit Coordinates Preview")
+      st.subheader(
+          "🔍 Common Points Error Analysis (Design vs Aligned Result)"
+      )
+      st.markdown(
+          f"Found **{len(common_points)}** common points: "
+          f"{', '.join(common_points.tolist())}"
+      )
+      st.dataframe(
+          error_df[
+              [
+                  "Design_X",
+                  "Design_Y",
+                  "Design_Z",
+                  "Err_X",
+                  "Err_Y",
+                  "Err_Z",
+                  "Total_Error",
+              ]
+          ]
+      )
+
+      st.markdown("---")
+      st.subheader("📋 Full Calculated After Bestfit Coordinates Preview")
       st.dataframe(df_after)
 
-      # Download Button
       csv_data = df_after.reset_index().to_csv(index=False, header=False)
       st.download_button(
           label="📥 Download After Bestfit Result File (.CSV)",
