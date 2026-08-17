@@ -78,7 +78,7 @@ if uploaded_design is not None and uploaded_before is not None:
         uploaded_before, header=None, names=["Point", "X", "Y", "Z"]
     )
 
-    # 💡 Fix: Convert Point column to string and strip spaces to avoid int vs str type mismatch
+    # Convert Point column to string and strip spaces to avoid int vs str type mismatch
     df_design["Point"] = df_design["Point"].astype(str).str.strip()
     df_before["Point"] = df_before["Point"].astype(str).str.strip()
 
@@ -133,10 +133,11 @@ if uploaded_design is not None and uploaded_before is not None:
       col1, col2 = st.columns(2)
       with col1:
         st.text("Rotation Matrix R:")
-        st.write(R)
+        # Format matrix values to 4 decimal places for display
+        st.write(np.array2string(R, formatter={"float_kind": lambda x: "%.4f" % x}))
       with col2:
         st.text("Translation Vector T:")
-        st.write(T)
+        st.write(np.array2string(T, formatter={"float_kind": lambda x: "%.4f" % x}))
 
       st.markdown("---")
       st.subheader(
@@ -146,25 +147,25 @@ if uploaded_design is not None and uploaded_before is not None:
           f"Found **{len(common_points)}** common points: "
           f"{', '.join(common_points.tolist())}"
       )
+      # Format table values to 4 decimal places
       st.dataframe(
-          error_df[
-              [
-                  "Design_X",
-                  "Design_Y",
-                  "Design_Z",
-                  "Err_X",
-                  "Err_Y",
-                  "Err_Z",
-                  "Total_Error",
-              ]
-          ]
+          error_df[[
+              "Design_X",
+              "Design_Y",
+              "Design_Z",
+              "Err_X",
+              "Err_Y",
+              "Err_Z",
+              "Total_Error",
+          ]].style.format("{:.4f}")
       )
 
       st.markdown("---")
       st.subheader("📋 Full Calculated After Bestfit Coordinates Preview")
-      st.dataframe(df_after)
+      # Format table values to 4 decimal places
+      st.dataframe(df_after.style.format("{:.4f}"))
 
-      csv_data = df_after.reset_index().to_csv(index=False, header=False)
+      csv_data = df_after.reset_index().to_csv(index=False, header=False, float_format="%.4f")
       st.download_button(
           label="📥 Download After Bestfit Result File (.CSV)",
           data=csv_data,
