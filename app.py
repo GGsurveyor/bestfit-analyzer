@@ -92,11 +92,14 @@ if uploaded_design is not None and uploaded_raw is not None:
     if "df_raw_edited" not in st.session_state:
       st.session_state["df_raw_edited"] = df_raw_initial.copy()
 
+    # Drop index so (index) column won't appear in editor
+    raw_display_df = st.session_state["df_raw_edited"].reset_index(drop=True)
+
     edited_raw_df = st.data_editor(
-        st.session_state["df_raw_edited"],
+        raw_display_df,
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True,  # 隐藏行索引列，默认只显示 Point, X, Y, Z 核心列
+        hide_index=True,
         key="raw_data_editor",
     )
     st.session_state["df_raw_edited"] = edited_raw_df
