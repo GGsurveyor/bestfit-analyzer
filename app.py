@@ -45,18 +45,18 @@ class BestFitEngine:
 
 
 st.set_page_config(
-    page_title="3D/2D BestFit & Interactive Station Splitter Made By Ng Yit Fung",
+    page_title="3D/2D BestFit & Interactive Station Splitter",
     page_icon="📐",
     layout="wide",
 )
 
 st.title(
-    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation"
+    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng Yit Fung"
 )
 st.markdown(
-    "Upload your **Design / Control file** and **Raw Data file**. Define"
-    " station row ranges, generate independent station CSVs, exclude specific"
-    " control points, and perform BestFit."
+    "Upload your **Design / Control file** and **Raw Data file**. Edit"
+    " station row ranges interactively, generate independent station CSVs,"
+    " exclude specific control points, and perform BestFit."
 )
 
 # Sidebar Configuration
@@ -85,12 +85,13 @@ if uploaded_design is not None and uploaded_raw is not None:
 
     total_rows = len(df_raw)
 
-    # --- Step 1: Raw Data Station Row Range Configurator ---
+    # --- Step 1: Raw Data Station Row Range Configurator (with Edit Table) ---
     st.markdown("---")
-    st.subheader("🛠️ Step 1: Configure Station Row Ranges")
+    st.subheader("🛠️ Step 1: Configure & Edit Station Row Ranges")
     st.info(
-        f"Raw Data loaded successfully! Total rows: **{total_rows}**. Specify"
-        " the row ranges for each station below (1-based index)."
+        f"Raw Data loaded successfully! Total rows: **{total_rows}**. You can"
+        " adjust the Station Name, Start Row, and End Row directly in the table"
+        " below."
     )
 
     with st.expander("📄 View Raw Data Preview & Line Numbers", expanded=False):
@@ -98,7 +99,7 @@ if uploaded_design is not None and uploaded_raw is not None:
       preview_df.index = range(1, len(preview_df) + 1)
       st.dataframe(preview_df, height=220)
 
-    col_cfg1, col_cfg2 = st.columns(2)
+    col_cfg1, _ = st.columns([1, 2])
     with col_cfg1:
       num_stations = st.number_input(
           "Number of Stations to Define",
@@ -108,42 +109,27 @@ if uploaded_design is not None and uploaded_raw is not None:
           step=1,
       )
 
-    station_configs = {}
-    st.markdown("#### Enter Row Ranges for Each Station:")
-
-    default_ranges = []
+    # Generate initial default chunks for data_editor
+    default_ranges_data = []
     chunk_size = total_rows // num_stations
     for i in range(num_stations):
       start = i * chunk_size + 1
       end = (i + 1) * chunk_size if i < num_stations - 1 else total_rows
-      default_ranges.append((start, end))
+      default_ranges_data.append({
+          "Station Name": f"Station-{i+1}",
+          "Start Row": int(start),
+          "End Row": int(end),
+      })
 
-    cols = st.columns(min(num_stations, 3))
-    temp_configs = {}
-    for i in range(num_stations):
-      col_idx = i % 3
-      with cols[col_idx]:
-        st.markdown(f"**Station {i+1}**")
-        s_name = st.text_input(
-            f"Station {i+1} Name", value=f"Station-{i+1}", key=f"name_{i}"
-        )
-        def_start, def_end = default_ranges[i]
-        r_start = st.number_input(
-            f"Start Row ({s_name})",
-            min_value=1,
-            max_value=total_rows,
-            value=def_start,
-            key=f"start_{i}",
-        )
-        r_end = st.number_input(
-            f"End Row ({s_name})",
-            min_value=1,
-            max_value=total_rows,
-            value=def_end,
-            key=f"end_{i}",
-        )
-        if r_start <= r_end:
-          temp_configs[s_name] = (r_start - 1, r_end)
+    df_default_ranges = pd.DataFrame(default_ranges_data)
+
+    st.markdown("#### ✏️ Editable Station Ranges Table:")
+    edited_ranges_df = st.data_editor(
+        df_default_ranges,
+        num_rows="fixed",
+        use_container_width=True,
+        key="station_ranges_editor",
+    )
 
     st.markdown("---")
     confirm_btn = st.button(
@@ -152,216 +138,253 @@ if uploaded_design is not None and uploaded_raw is not None:
         use_container_width=True,
     )
 
+    # Parse edited table into config dict
+    temp_configs = {}
+    valid_config = True
+    for index, row in edited_ranges_df.iterrows():
+      s_name = str(row["Station Name"]).strip()
+      try:
+        r_start = int(row["Start Row"])
+        r_end = int(row["End Row"])
+      except ValueError:
+        valid_config = False
+        break
+
+      if r_start > r_end or r_start < 1 or r_end > total_rows:
+        valid_config = False
+
+      # Convert 1-based to 0-based for pandas iloc slicing (start inclusive, end exclusive in iloc -> r_end is inclusive row index, so iloc[start-1:end])
+      temp_configs[s_name] = (r_start - 1, r_end)
+
     if confirm_btn or "stations_generated" in st.session_state:
-      st.session_state["stations_generated"] = True
-      st.session_state["temp_configs"] = temp_configs
-
-      st.success(
-          "🎉 Sub-stations successfully defined and generated! Independent CSV"
-          " files are ready below."
-      )
-
-      st.subheader("📦 Generated Independent Sub-Station Files")
-      file_cols = st.columns(len(temp_configs))
-      generated_stations = {}
-
-      for idx, (s_name, (s_start, s_end)) in enumerate(
-          temp_configs.items()
-      ):
-        stn_df = df_raw.iloc[s_start:s_end].copy()
-        generated_stations[s_name] = stn_df
-        csv_bytes = stn_df.to_csv(index=False, header=False, float_format="%.4f")
-
-        with file_cols[idx % len(file_cols)]:
-          st.markdown(f"**{s_name}** (Rows {s_start+1} to {s_end})")
-          st.download_button(
-              label=f"📥 Download {s_name}.CSV",
-              data=csv_bytes,
-              file_name=f"{s_name}.CSV",
-              mime="text/csv",
-              key=f"dl_{s_name}",
-          )
-
-      st.markdown("---")
-      # --- Step 2: Choose Station, Mode & Exclude Points ---
-      st.subheader("🎯 Step 2: Select Station, Mode & Exclude Control Points")
-
-      col_sel1, col_sel2 = st.columns(2)
-      with col_sel1:
-        selected_station_to_fit = st.selectbox(
-            "Choose Target Station to BestFit to Design",
-            options=list(generated_stations.keys()),
-        )
-      with col_sel2:
-        alignment_mode = st.selectbox(
-            "Select BestFit Mode",
-            options=[
-                "3D BestFit (Full 6 DOF)",
-                "2D BestFit (XY Plane Constraint)",
-            ],
-        )
-
-      # Extract active station segment
-      active_df = generated_stations[selected_station_to_fit].copy()
-      active_df["Point"] = active_df["Point"].astype(str).str.strip()
-      active_indexed = active_df.set_index("Point")
-
-      # Find common points between this station and Design data
-      all_station_common_points = df_design.index.intersection(
-          active_indexed.index
-      )
-
-      # Option to exclude specific points from BestFit calculation
-      excluded_points = st.multiselect(
-          "🚫 Exclude Control Points from Calculation (不在计算/拟合范围内)",
-          options=all_station_common_points.tolist(),
-          default=[],
-          help=(
-              "Selected points will be ignored during BestFit matrix"
-              " calculation and deviation analysis."
-          ),
-      )
-
-      # Effective common points for calculation
-      station_common_points = all_station_common_points.difference(
-          excluded_points
-      )
-
-      if len(station_common_points) < 3:
+      if not valid_config:
         st.error(
-            f"Error: After exclusion, station [{selected_station_to_fit}] has"
-            f" only {len(station_common_points)} valid common points. At least"
-            " 3 common points are required for BestFit!"
+            "⚠️ Error: Please ensure row ranges are valid integers between 1"
+            f" and {total_rows}, and Start Row <= End Row."
         )
       else:
-        design_pts = df_design.loc[
-            station_common_points, ["X", "Y", "Z"]
-        ].values
-        raw_pts = active_indexed.loc[
-            station_common_points, ["X", "Y", "Z"]
-        ].values
+        st.session_state["stations_generated"] = True
+        st.session_state["temp_configs"] = temp_configs
 
-        if "3D" in alignment_mode:
-          R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
-        else:
-          R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
-
-        # Transform all points in this specific station safely
-        all_station_pts = active_indexed[["X", "Y", "Z"]].values
-        transformed_active_pts = np.dot(all_station_pts, R.T) + T
-        df_active_after = pd.DataFrame(
-            transformed_active_pts,
-            index=active_indexed.index,
-            columns=["X", "Y", "Z"],
+        st.success(
+            "🎉 Sub-stations successfully defined and generated! Independent CSV"
+            " files are ready below."
         )
 
-        # Error Analysis for ALL common points
-        transformed_all_common = (
-            np.dot(
-                active_indexed.loc[
-                    all_station_common_points, ["X", "Y", "Z"]
-                ].values,
-                R.T,
+        st.subheader("📦 Generated Independent Sub-Station Files")
+        file_cols = st.columns(len(temp_configs))
+        generated_stations = {}
+
+        for idx, (s_name, (s_start, s_end)) in enumerate(
+            temp_configs.items()
+        ):
+          stn_df = df_raw.iloc[s_start:s_end].copy()
+          generated_stations[s_name] = stn_df
+          csv_bytes = stn_df.to_csv(
+              index=False, header=False, float_format="%.4f"
+          )
+
+          with file_cols[idx % len(file_cols)]:
+            st.markdown(f"**{s_name}** (Rows {s_start+1} to {s_end})")
+            st.download_button(
+                label=f"📥 Download {s_name}.CSV",
+                data=csv_bytes,
+                file_name=f"{s_name}.CSV",
+                mime="text/csv",
+                key=f"dl_{s_name}",
             )
-            + T
-        )
-        df_common_after = pd.DataFrame(
-            transformed_all_common,
-            index=all_station_common_points,
-            columns=["After_X", "After_Y", "After_Z"],
-        )
 
-        error_df = df_design.loc[all_station_common_points].copy()
-        error_df.rename(
-            columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
-            inplace=True,
-        )
-        error_df["After_X"] = df_common_after["After_X"]
-        error_df["After_Y"] = df_common_after["After_Y"]
-        error_df["After_Z"] = df_common_after["After_Z"]
-
-        error_df["Delta E"] = error_df["After_X"] - error_df["Design_X"]
-        error_df["Delta N"] = error_df["After_Y"] - error_df["Design_Y"]
-        error_df["Delta El"] = error_df["After_Z"] - error_df["Design_Z"]
-        error_df["Total_Error"] = np.sqrt(
-            error_df["Delta E"] ** 2
-            + error_df["Delta N"] ** 2
-            + error_df["Delta El"] ** 2
-        )
-
-        error_df["Status"] = [
-            "Excluded (不参与计算)" if pt in excluded_points else "Active (参与计算)"
-            for pt in error_df.index
-        ]
-
-        # --- Main UI Results Display ---
         st.markdown("---")
-        st.subheader(
-            f"📊 BestFit Results for [{selected_station_to_fit}] using"
-            f" {alignment_mode}"
-        )
+        # --- Step 2: Choose Station, Mode & Exclude Points ---
+        st.subheader("🎯 Step 2: Select Station, Mode & Exclude Control Points")
 
-        col_res1, col_res2 = st.columns(2)
-        with col_res1:
-          st.text("Rotation Matrix R:")
-          st.write(
-              np.array2string(R, formatter={"float_kind": lambda x: "%.4f" % x})
+        col_sel1, col_sel2 = st.columns(2)
+        with col_sel1:
+          selected_station_to_fit = st.selectbox(
+              "Choose Target Station to BestFit to Design",
+              options=list(generated_stations.keys()),
           )
-        with col_res2:
-          st.text("Translation Vector T:")
-          st.write(
-              np.array2string(T, formatter={"float_kind": lambda x: "%.4f" % x})
+        with col_sel2:
+          alignment_mode = st.selectbox(
+              "Select BestFit Mode",
+              options=[
+                  "3D BestFit (Full 6 DOF)",
+                  "2D BestFit (XY Plane Constraint)",
+              ],
           )
 
-        # 1. First show Fit Deviations Analysis
-        st.markdown("---")
-        st.subheader("🔍 2D/3D Fit Deviations (Design vs Aligned Station Data)")
-        st.markdown(
-            f"Total common control points in **{selected_station_to_fit}**:"
-            f" **{len(all_station_common_points)}** (Active for fit:"
-            f" **{len(station_common_points)}**, Excluded: "
-            f"**{len(excluded_points)}**)"
-        )
-        st.dataframe(
-            error_df[[
-                "Status",
-                "Design_X",
-                "Design_Y",
-                "Design_Z",
-                "Delta E",
-                "Delta N",
-                "Delta El",
-                "Total_Error",
-            ]].style.format({
-                "Design_X": "{:.4f}",
-                "Design_Y": "{:.4f}",
-                "Design_Z": "{:.4f}",
-                "Delta E": "{:.4f}",
-                "Delta N": "{:.4f}",
-                "Delta El": "{:.4f}",
-                "Total_Error": "{:.4f}",
-            })
+        # Extract active station segment
+        active_df = generated_stations[selected_station_to_fit].copy()
+        active_df["Point"] = active_df["Point"].astype(str).str.strip()
+        active_indexed = active_df.set_index("Point")
+
+        # Find common points between this station and Design data
+        all_station_common_points = df_design.index.intersection(
+            active_indexed.index
         )
 
-        # 2. Then show Aligned Coordinates Preview and Download button at the very bottom
-        st.markdown("---")
-        st.subheader(
-            f"📋 Aligned Coordinates Preview ({selected_station_to_fit}_after)"
-        )
-        st.dataframe(df_active_after.style.format("{:.4f}"))
-
-        active_csv_data = df_active_after.reset_index().to_csv(
-            index=False, header=False, float_format="%.4f"
-        )
-        safe_name = selected_station_to_fit.replace(" ", "_").lower()
-        st.download_button(
-            label=(
-                f"📥 Download Aligned [{selected_station_to_fit}] Result (.CSV)"
+        # Option to exclude specific points from BestFit calculation
+        excluded_points = st.multiselect(
+            "🚫 Exclude Control Points from Calculation (不在计算/拟合范围内)",
+            options=all_station_common_points.tolist(),
+            default=[],
+            help=(
+                "Selected points will be ignored during BestFit matrix"
+                " calculation and deviation analysis."
             ),
-            data=active_csv_data,
-            file_name=f"{safe_name}_after.CSV",
-            mime="text/csv",
         )
+
+        # Effective common points for calculation
+        station_common_points = all_station_common_points.difference(
+            excluded_points
+        )
+
+        if len(station_common_points) < 3:
+          st.error(
+              f"Error: After exclusion, station [{selected_station_to_fit}] has"
+              f" only {len(station_common_points)} valid common points. At"
+              " least 3 common points are required for BestFit!"
+          )
+        else:
+          design_pts = df_design.loc[
+              station_common_points, ["X", "Y", "Z"]
+          ].values
+          raw_pts = active_indexed.loc[
+              station_common_points, ["X", "Y", "Z"]
+          ].values
+
+          if "3D" in alignment_mode:
+            R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
+          else:
+            R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
+
+          # Transform all points in this specific station safely
+          all_station_pts = active_indexed[["X", "Y", "Z"]].values
+          transformed_active_pts = np.dot(all_station_pts, R.T) + T
+          df_active_after = pd.DataFrame(
+              transformed_active_pts,
+              index=active_indexed.index,
+              columns=["X", "Y", "Z"],
+          )
+
+          # Error Analysis for ALL common points
+          transformed_all_common = (
+              np.dot(
+                  active_indexed.loc[
+                      all_station_common_points, ["X", "Y", "Z"]
+                  ].values,
+                  R.T,
+              )
+              + T
+          )
+          df_common_after = pd.DataFrame(
+              transformed_all_common,
+              index=all_station_common_points,
+              columns=["After_X", "After_Y", "After_Z"],
+          )
+
+          error_df = df_design.loc[all_station_common_points].copy()
+          error_df.rename(
+              columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
+              inplace=True,
+          )
+          error_df["After_X"] = df_common_after["After_X"]
+          error_df["After_Y"] = df_common_after["After_Y"]
+          error_df["After_Z"] = df_common_after["After_Z"]
+
+          error_df["Delta E"] = error_df["After_X"] - error_df["Design_X"]
+          error_df["Delta N"] = error_df["After_Y"] - error_df["Design_Y"]
+          error_df["Delta El"] = error_df["After_Z"] - error_df["Design_Z"]
+          error_df["Total_Error"] = np.sqrt(
+              error_df["Delta E"] ** 2
+              + error_df["Delta N"] ** 2
+              + error_df["Delta El"] ** 2
+          )
+
+          error_df["Status"] = [
+              (
+                  "Excluded (不参与计算)"
+                  if pt in excluded_points
+                  else "Active (参与计算)"
+              )
+              for pt in error_df.index
+          ]
+
+          # --- Main UI Results Display ---
+          st.markdown("---")
+          st.subheader(
+              f"📊 BestFit Results for [{selected_station_to_fit}] using"
+              f" {alignment_mode}"
+          )
+
+          col_res1, col_res2 = st.columns(2)
+          with col_res1:
+            st.text("Rotation Matrix R:")
+            st.write(
+                np.array2string(
+                    R, formatter={"float_kind": lambda x: "%.4f" % x}
+                )
+            )
+          with col_res2:
+            st.text("Translation Vector T:")
+            st.write(
+                np.array2string(
+                    T, formatter={"float_kind": lambda x: "%.4f" % x}
+                )
+            )
+
+          # 1. Fit Deviations Analysis
+          st.markdown("---")
+          st.subheader(
+              "🔍 2D/3D Fit Deviations (Design vs Aligned Station Data)"
+          )
+          st.markdown(
+              f"Total common control points in **{selected_station_to_fit}**:"
+              f" **{len(all_station_common_points)}** (Active for fit:"
+              f" **{len(station_common_points)}**, Excluded: "
+              f"**{len(excluded_points)}**)"
+          )
+          st.dataframe(
+              error_df[[
+                  "Status",
+                  "Design_X",
+                  "Design_Y",
+                  "Design_Z",
+                  "Delta E",
+                  "Delta N",
+                  "Delta El",
+                  "Total_Error",
+              ]].style.format({
+                  "Design_X": "{:.4f}",
+                  "Design_Y": "{:.4f}",
+                  "Design_Z": "{:.4f}",
+                  "Delta E": "{:.4f}",
+                  "Delta N": "{:.4f}",
+                  "Delta El": "{:.4f}",
+                  "Total_Error": "{:.4f}",
+              })
+          )
+
+          # 2. Aligned Coordinates Preview & Download Button at the bottom
+          st.markdown("---")
+          st.subheader(
+              f"📋 Aligned Coordinates Preview ({selected_station_to_fit}_after)"
+          )
+          st.dataframe(df_active_after.style.format("{:.4f}"))
+
+          active_csv_data = df_active_after.reset_index().to_csv(
+              index=False, header=False, float_format="%.4f"
+          )
+          safe_name = selected_station_to_fit.replace(" ", "_").lower()
+          st.download_button(
+              label=(
+                  f"📥 Download Aligned [{selected_station_to_fit}] Result"
+                  " (.CSV)"
+              ),
+              data=active_csv_data,
+              file_name=f"{safe_name}_after.CSV",
+              mime="text/csv",
+          )
 
   except Exception as e:
     st.error(f"An error occurred during processing: {e}")
