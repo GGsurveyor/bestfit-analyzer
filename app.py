@@ -55,8 +55,8 @@ st.title(
 )
 st.markdown(
     "Upload your **Design / Control file** and **Raw Data file**. Define"
-    " station row ranges, generate independent station CSVs, and perform"
-    " independent BestFit per station."
+    " station row ranges, generate independent station CSVs, exclude specific"
+    " control points, and perform BestFit."
 )
 
 # Sidebar Configuration
@@ -111,7 +111,6 @@ if uploaded_design is not None and uploaded_raw is not None:
     station_configs = {}
     st.markdown("#### Enter Row Ranges for Each Station:")
 
-    # Default smart chunks if 3 stations
     default_ranges = []
     chunk_size = total_rows // num_stations
     for i in range(num_stations):
@@ -147,7 +146,6 @@ if uploaded_design is not None and uploaded_raw is not None:
           temp_configs[s_name] = (r_start - 1, r_end)
 
     st.markdown("---")
-    # Confirm Button to Generate Stations
     confirm_btn = st.button(
         "✅ 确定并生成独立分站文件 (Confirm & Generate Stations)",
         type="primary",
@@ -163,7 +161,6 @@ if uploaded_design is not None and uploaded_raw is not None:
           " files are ready below."
       )
 
-      # Display & Download Independent Station CSVs
       st.subheader("📦 Generated Independent Sub-Station Files")
       file_cols = st.columns(len(temp_configs))
       generated_stations = {}
@@ -186,8 +183,8 @@ if uploaded_design is not None and uploaded_raw is not None:
           )
 
       st.markdown("---")
-      # --- Step 2: Choose Which Station to BestFit ---
-      st.subheader("🎯 Step 2: Select Station & Alignment Mode for BestFit")
+      # --- Step 2: Choose Station, Mode & Exclude Points ---
+      st.subheader("🎯 Step 2: Select Station, Mode & Exclude Control Points")
 
       col_sel1, col_sel2 = st.columns(2)
       with col_sel1:
@@ -206,20 +203,35 @@ if uploaded_design is not None and uploaded_raw is not None:
 
       # Extract active station segment
       active_df = generated_stations[selected_station_to_fit].copy()
-      # Ensure point names are stripped and set as index
       active_df["Point"] = active_df["Point"].astype(str).str.strip()
       active_indexed = active_df.set_index("Point")
 
-      # Find common points specifically existing in THIS station and Design data
-      station_common_points = df_design.index.intersection(
+      # Find common points between this station and Design data
+      all_station_common_points = df_design.index.intersection(
           active_indexed.index
+      )
+
+      # Option to exclude specific points from BestFit calculation
+      excluded_points = st.multiselect(
+          "🚫 Exclude Control Points from Calculation (不在计算/拟合范围内)",
+          options=all_station_common_points.tolist(),
+          default=[],
+          help=(
+              "Selected points will be ignored during BestFit matrix"
+              " calculation and deviation analysis."
+          ),
+      )
+
+      # Effective common points for calculation
+      station_common_points = all_station_common_points.difference(
+          excluded_points
       )
 
       if len(station_common_points) < 3:
         st.error(
-            f"Error: Station [{selected_station_to_fit}] contains only"
-            f" {len(station_common_points)} common points with Design data. At"
-            " least 3 common points are required for BestFit!"
+            f"Error: After exclusion, station [{selected_station_to_fit}] has"
+            f" only {len(station_common_points)} valid common points. At least"
+            " 3 common points are required for BestFit!"
         )
       else:
         design_pts = df_design.loc[
@@ -243,23 +255,23 @@ if uploaded_design is not None and uploaded_raw is not None:
             columns=["X", "Y", "Z"],
         )
 
-        # Error Analysis for Common Points in this station
-        transformed_common_pts = (
+        # Error Analysis for ALL common points (including excluded ones for comparison if needed, or active ones)
+        transformed_all_common = (
             np.dot(
                 active_indexed.loc[
-                    station_common_points, ["X", "Y", "Z"]
+                    all_station_common_points, ["X", "Y", "Z"]
                 ].values,
                 R.T,
             )
             + T
         )
         df_common_after = pd.DataFrame(
-            transformed_common_pts,
-            index=station_common_points,
+            transformed_all_common,
+            index=all_station_common_points,
             columns=["After_X", "After_Y", "After_Z"],
         )
 
-        error_df = df_design.loc[station_common_points].copy()
+        error_df = df_design.loc[all_station_common_points].copy()
         error_df.rename(
             columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
             inplace=True,
@@ -276,6 +288,12 @@ if uploaded_design is not None and uploaded_raw is not None:
             + error_df["Delta N"] ** 2
             + error_df["Delta El"] ** 2
         )
+
+        # Mark excluded status in table
+        error_df["Status"] = [
+            "Excluded (不参与计算)" if pt in excluded_points else "Active (参与计算)"
+            for pt in error_df.index
+        ]
 
         # --- Main UI Results Display ---
         st.markdown("---")
@@ -318,12 +336,14 @@ if uploaded_design is not None and uploaded_raw is not None:
         st.markdown("---")
         st.subheader("🔍 2D/3D Fit Deviations (Design vs Aligned Station Data)")
         st.markdown(
-            f"Found **{len(station_common_points)}** common control points in"
-            f" **{selected_station_to_fit}**: "
-            f"{', '.join(station_common_points.tolist())}"
+            f"Total common control points in **{selected_station_to_fit}**:"
+            f" **{len(all_station_common_points)}** (Active for fit:"
+            f" **{len(station_common_points)}**, Excluded: "
+            f"**{len(excluded_points)}**)"
         )
         st.dataframe(
             error_df[[
+                "Status",
                 "Design_X",
                 "Design_Y",
                 "Design_Z",
@@ -331,7 +351,15 @@ if uploaded_design is not None and uploaded_raw is not None:
                 "Delta N",
                 "Delta El",
                 "Total_Error",
-            ]].style.format("{:.4f}")
+            ]].style.format({
+                "Design_X": "{:.4f}",
+                "Design_Y": "{:.4f}",
+                "Design_Z": "{:.4f}",
+                "Delta E": "{:.4f}",
+                "Delta N": "{:.4f}",
+                "Delta El": "{:.4f}",
+                "Total_Error": "{:.4f}",
+            })
         )
 
   except Exception as e:
