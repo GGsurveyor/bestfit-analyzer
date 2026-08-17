@@ -45,16 +45,15 @@ class BestFitEngine:
 
 
 st.set_page_config(
-    page_title="3D/2D BestFit Multi-Station Alignment System",
+    page_title="3D/2D BestFit & Multi-Station Analysis",
     page_icon="📐",
     layout="wide",
 )
 
-st.title("📐 3D / 2D BestFit Multi-Station Alignment & Error Analysis System")
+st.title("📐 3D / 2D BestFit Alignment & Multi-Station Analysis System")
 st.markdown(
-    "Upload your **Design/Control file**, **Raw/Before file**, and optional"
-    " **Sub-Station (STN) files** to compute alignment and analyze point"
-    " errors."
+    "Upload your **Design/Control file** and **Raw Data file** (containing"
+    " multi-station measurements)."
 )
 
 # Sidebar Configuration
@@ -70,18 +69,7 @@ uploaded_design = st.sidebar.file_uploader(
     "Upload Design / Control CSV", type=["csv"], key="design"
 )
 uploaded_raw = st.sidebar.file_uploader(
-    "Upload Raw / Before Bestfit CSV", type=["csv"], key="raw"
-)
-
-st.sidebar.markdown("### 🏢 Sub-Station Files (Optional)")
-uploaded_stn1 = st.sidebar.file_uploader(
-    "Upload STN 1 CSV", type=["csv"], key="stn1"
-)
-uploaded_stn2 = st.sidebar.file_uploader(
-    "Upload STN 2 CSV", type=["csv"], key="stn2"
-)
-uploaded_stn3 = st.sidebar.file_uploader(
-    "Upload STN 3 CSV", type=["csv"], key="stn3"
+    "Upload Raw Data CSV", type=["csv"], key="raw"
 )
 
 if uploaded_design is not None and uploaded_raw is not None:
@@ -98,9 +86,31 @@ if uploaded_design is not None and uploaded_raw is not None:
     df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
 
     df_design.set_index("Point", inplace=True)
-    df_raw.set_index("Point", inplace=True)
 
-    common_points = df_design.index.intersection(df_raw.index)
+    # --- Automatic Sub-Station (STN) Detection from Raw Data ---
+    # Detect rows starting with 'BS' as station/back-sight boundaries
+    bs_indices = df_raw[
+        df_raw["Point"].str.contains("^BS", case=False, na=False)
+    ].index.tolist()
+
+    stations = {}
+    if bs_indices:
+      for i in range(len(bs_indices)):
+        start_idx = bs_indices[i]
+        end_idx = (
+            bs_indices[i + 1] if i + 1 < len(bs_indices) else len(df_raw)
+        )
+        bs_name = df_raw.loc[start_idx, "Point"]
+        stn_df = df_raw.iloc[start_idx:end_idx].copy()
+        stations[f"Station {i+1} ({bs_name})"] = stn_df
+    else:
+      # If no BS found, treat the whole raw data as one station
+      stations["All Raw Data"] = df_raw
+
+    # Global BestFit calculation using all common points between design and raw
+    # For finding common points across all raw data:
+    df_raw_indexed = df_raw.set_index("Point")
+    common_points = df_design.index.intersection(df_raw_indexed.index)
 
     if len(common_points) < 3:
       st.error(
@@ -109,18 +119,20 @@ if uploaded_design is not None and uploaded_raw is not None:
       )
     else:
       design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
-      raw_pts = df_raw.loc[common_points, ["X", "Y", "Z"]].values
+      raw_pts = df_raw_indexed.loc[common_points, ["X", "Y", "Z"]].values
 
       if "3D" in alignment_mode:
         R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
       else:
         R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
 
-      # Transform Raw Data
-      all_raw_pts = df_raw[["X", "Y", "Z"]].values
+      # Transform entire Raw Data
+      all_raw_pts = df_raw_indexed[["X", "Y", "Z"]].values
       transformed_raw_pts = np.dot(all_raw_pts, R.T) + T
-      df_after = pd.DataFrame(
-          transformed_raw_pts, index=df_raw.index, columns=["X", "Y", "Z"]
+      df_after_global = pd.DataFrame(
+          transformed_raw_pts,
+          index=df_raw_indexed.index,
+          columns=["X", "Y", "Z"],
       )
 
       # Error Analysis for Common Points
@@ -129,9 +141,9 @@ if uploaded_design is not None and uploaded_raw is not None:
           columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
           inplace=True,
       )
-      error_df["After_X"] = df_after.loc[common_points, "X"]
-      error_df["After_Y"] = df_after.loc[common_points, "Y"]
-      error_df["After_Z"] = df_after.loc[common_points, "Z"]
+      error_df["After_X"] = df_after_global.loc[common_points, "X"]
+      error_df["After_Y"] = df_after_global.loc[common_points, "Y"]
+      error_df["After_Z"] = df_after_global.loc[common_points, "Z"]
 
       error_df["Err_X"] = error_df["After_X"] - error_df["Design_X"]
       error_df["Err_Y"] = error_df["After_Y"] - error_df["Design_Y"]
@@ -142,13 +154,13 @@ if uploaded_design is not None and uploaded_raw is not None:
           + error_df["Err_Z"] ** 2
       )
 
-      # --- UI Layout & Sub-Station Selection ---
+      # --- UI Layout ---
       st.markdown("---")
       view_tab = st.radio(
           "📊 Select View Mode",
           options=[
               "Global Transformation & Error Analysis",
-              "Sub-Station Analysis (STN)",
+              "Sub-Station Inspection & Transformation",
           ],
           horizontal=True,
       )
@@ -193,78 +205,62 @@ if uploaded_design is not None and uploaded_raw is not None:
 
         st.markdown("---")
         st.subheader("📋 Full Calculated After Bestfit Coordinates Preview")
-        st.dataframe(df_after.style.format("{:.4f}"))
+        st.dataframe(df_after_global.style.format("{:.4f}"))
 
-        csv_data = df_after.reset_index().to_csv(
+        csv_data = df_after_global.reset_index().to_csv(
             index=False, header=False, float_format="%.4f"
         )
         st.download_button(
-            label="📥 Download After Bestfit Result File (.CSV)",
+            label="📥 Download Global After Bestfit Result File (.CSV)",
             data=csv_data,
-            file_name="P1W-SS16-B-W_after_Bestfit.CSV",
+            file_name="after_Bestfit_global.CSV",
             mime="text/csv",
         )
 
       else:
-        st.subheader("🏢 Sub-Station (STN) Data Inspection & Transformation")
-        stn_dict = {
-            "STN 1": uploaded_stn1,
-            "STN 2": uploaded_stn2,
-            "STN 3": uploaded_stn3,
-        }
-        available_stns = {
-            k: v for k, v in stn_dict.items() if v is not None
-        }
+        st.subheader(
+            "🏢 Sub-Station Selection & Transformation (Extracted from Raw Data)"
+        )
+        selected_stn_name = st.selectbox(
+            "Select Sub-Station", options=list(stations.keys())
+        )
+        stn_df = stations[selected_stn_name]
 
-        if not available_stns:
-          st.warning(
-              "⚠️ Please upload at least one Sub-Station (STN 1, STN 2, or STN 3)"
-              " file in the sidebar to use this feature."
-          )
-        else:
-          selected_stn_name = st.selectbox(
-              "Select Sub-Station to View", options=list(available_stns.keys())
-          )
-          stn_file = available_stns[selected_stn_name]
+        st.markdown(
+            f"**Raw Data Preview for {selected_stn_name} (Rows:"
+            f" {len(stn_df)}):**"
+        )
+        st.dataframe(
+            stn_df.set_index("Point").style.format(
+                {"X": "{:.4f}", "Y": "{:.4f}", "Z": "{:.4f}"}
+            )
+        )
 
-          df_stn = pd.read_csv(
-              stn_file, header=None, names=["Point", "X", "Y", "Z"]
-          )
-          df_stn["Point"] = df_stn["Point"].astype(str).str.strip()
+        # Apply transformation to this sub-station
+        stn_pts = stn_df[["X", "Y", "Z"]].values
+        transformed_stn_pts = np.dot(stn_pts, R.T) + T
+        df_stn_after = pd.DataFrame(
+            transformed_stn_pts, index=stn_df["Point"], columns=["X", "Y", "Z"]
+        )
 
-          st.markdown(f"**Raw Data Preview for {selected_stn_name}:**")
-          st.dataframe(df_stn.set_index("Point").style.format("{:.4f}"))
+        st.markdown(f"**Aligned Coordinates Result for {selected_stn_name}:**")
+        st.dataframe(df_stn_after.style.format("{:.4f}"))
 
-          # Apply global transformation R and T to this sub-station
-          stn_pts = df_stn[["X", "Y", "Z"]].values
-          transformed_stn_pts = np.dot(stn_pts, R.T) + T
-          df_stn_after = pd.DataFrame(
-              transformed_stn_pts,
-              index=df_stn["Point"],
-              columns=["X", "Y", "Z"],
-          )
-
-          st.markdown(
-              f"**Aligned Coordinates Result for {selected_stn_name}:**"
-          )
-          st.dataframe(df_stn_after.style.format("{:.4f}"))
-
-          stn_csv_data = df_stn_after.reset_index().to_csv(
-              index=False, header=False, float_format="%.4f"
-          )
-          st.download_button(
-              label=(
-                  f"📥 Download Aligned {selected_stn_name} Result File (.CSV)"
-              ),
-              data=stn_csv_data,
-              file_name=f"P1W-SS16-B-W_{selected_stn_name.replace(' ', '_')}_after.CSV",
-              mime="text/csv",
-          )
+        stn_csv_data = df_stn_after.reset_index().to_csv(
+            index=False, header=False, float_format="%.4f"
+        )
+        safe_stn_name = selected_stn_name.replace(" ", "_").replace("(", "").replace(")", "")
+        st.download_button(
+            label=f"📥 Download Aligned {selected_stn_name} Result File (.CSV)",
+            data=stn_csv_data,
+            file_name=f"{safe_stn_name}_after.CSV",
+            mime="text/csv",
+        )
 
   except Exception as e:
     st.error(f"An error occurred during processing: {e}")
 else:
   st.info(
-      "👈 Please upload both the **Design / Control CSV** and **Raw / Before"
-      " CSV** files in the left sidebar to begin."
+      "👈 Please upload both the **Design / Control CSV** and **Raw Data CSV**"
+      " files in the left sidebar to begin."
   )
