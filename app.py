@@ -45,27 +45,21 @@ class BestFitEngine:
 
 
 st.set_page_config(
-    page_title="3D/2D BestFit & Interactive Station Range Configurator",
+    page_title="3D/2D BestFit & Interactive Station Splitter",
     page_icon="📐",
     layout="wide",
 )
 
 st.title(
-    "📐 3D / 2D BestFit Alignment & Interactive Station Range Configurator"
+    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation"
 )
 st.markdown(
-    "Upload your **Design / Control file** and **Raw Data file**. Configure"
-    " custom row ranges for each station to analyze."
+    "Upload your **Design / Control file** and **Raw Data file**. Define"
+    " station row ranges, confirm to generate independent station CSVs, and"
+    " choose which station to BestFit."
 )
 
 # Sidebar Configuration
-st.sidebar.header("⚙️ Alignment Settings")
-alignment_mode = st.sidebar.selectbox(
-    "Select BestFit Mode",
-    options=["3D BestFit (Full 6 DOF)", "2D BestFit (XY Plane Constraint)"],
-)
-
-st.sidebar.markdown("---")
 st.sidebar.header("📂 Data Upload Center")
 uploaded_design = st.sidebar.file_uploader(
     "Upload Design / Control CSV", type=["csv"], key="design"
@@ -91,20 +85,19 @@ if uploaded_design is not None and uploaded_raw is not None:
 
     total_rows = len(df_raw)
 
-    # --- Interactive Station Range Configuration Panel in Main Area ---
+    # --- Step 1: Raw Data Station Row Range Configurator ---
     st.markdown("---")
-    st.subheader("🛠️ Raw Data Station Row Range Configurator")
+    st.subheader("🛠️ Step 1: Configure Station Row Ranges")
     st.info(
-        f"Raw Data loaded successfully! Total rows: **{total_rows}**. Define your"
-        " station segments by row numbers below (1-based index)."
+        f"Raw Data loaded successfully! Total rows: **{total_rows}**. Specify"
+        " the row ranges for each station below (1-based index)."
     )
 
     with st.expander("📄 View Raw Data Preview & Line Numbers", expanded=False):
       preview_df = df_raw.copy()
       preview_df.index = range(1, len(preview_df) + 1)
-      st.dataframe(preview_df, height=250)
+      st.dataframe(preview_df, height=220)
 
-    # Configuration widgets for stations
     col_cfg1, col_cfg2 = st.columns(2)
     with col_cfg1:
       num_stations = st.number_input(
@@ -127,6 +120,7 @@ if uploaded_design is not None and uploaded_raw is not None:
       default_ranges.append((start, end))
 
     cols = st.columns(min(num_stations, 3))
+    temp_configs = {}
     for i in range(num_stations):
       col_idx = i % 3
       with cols[col_idx]:
@@ -149,137 +143,184 @@ if uploaded_design is not None and uploaded_raw is not None:
             value=def_end,
             key=f"end_{i}",
         )
-        # Convert 1-based user input to 0-based python slice
         if r_start <= r_end:
-          station_configs[s_name] = (r_start - 1, r_end)
+          temp_configs[s_name] = (r_start - 1, r_end)
 
-    # --- Sidebar Sub-Station Selector based on user definitions ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("🎯 Select Station to Analyze")
-    if station_configs:
-      selected_station_name = st.sidebar.selectbox(
-          "Choose Configured Station", options=list(station_configs.keys())
+    st.markdown("---")
+    # Confirm Button to Generate Stations
+    confirm_btn = st.button(
+        "✅ 确定并生成独立分站文件 (Confirm & Generate Stations)",
+        type="primary",
+        use_container_width=True,
+    )
+
+    if confirm_btn or "stations_generated" in st.session_state:
+      st.session_state["stations_generated"] = True
+      st.session_state["temp_configs"] = temp_configs
+
+      st.success(
+          "🎉 Sub-stations successfully defined and generated! Independent CSV"
+          " files are ready below."
       )
-    else:
-      st.sidebar.error("Invalid row ranges!")
-      st.stop()
 
-    # Get common points for BestFit calculation
-    common_points = df_design.index.intersection(df_raw_indexed.index)
+      # Display & Download Independent Station CSVs
+      st.subheader("📦 Generated Independent Sub-Station Files")
+      file_cols = st.columns(len(temp_configs))
+      generated_stations = {}
 
-    if len(common_points) < 3:
-      st.error(
-          f"Error: Found only {len(common_points)} common points between Design"
-          " and Raw data. At least 3 common points are required!"
-      )
-    else:
-      design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
-      raw_pts = df_raw_indexed.loc[common_points, ["X", "Y", "Z"]].values
+      for idx, (s_name, (s_start, s_end)) in enumerate(
+          temp_configs.items()
+      ):
+        stn_df = df_raw.iloc[s_start:s_end].copy()
+        generated_stations[s_name] = stn_df
+        csv_bytes = stn_df.to_csv(index=False, header=False, float_format="%.4f")
 
-      if "3D" in alignment_mode:
-        R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
+        with file_cols[idx % len(file_cols)]:
+          st.markdown(f"**{s_name}** (Rows {s_start+1} to {s_end})")
+          st.download_button(
+              label=f"📥 Download {s_name}.CSV",
+              data=csv_bytes,
+              file_name=f"{s_name}.CSV",
+              mime="text/csv",
+              key=f"dl_{s_name}",
+          )
+
+      st.markdown("---")
+      # --- Step 2: Choose Which Station to BestFit ---
+      st.subheader("🎯 Step 2: Select Station & Alignment Mode for BestFit")
+
+      col_sel1, col_sel2 = st.columns(2)
+      with col_sel1:
+        selected_station_to_fit = st.selectbox(
+            "Choose Target Station to BestFit to Design",
+            options=list(generated_stations.keys()),
+        )
+      with col_sel2:
+        alignment_mode = st.selectbox(
+            "Select BestFit Mode",
+            options=[
+                "3D BestFit (Full 6 DOF)",
+                "2D BestFit (XY Plane Constraint)",
+            ],
+        )
+
+      # Get common points for BestFit calculation
+      common_points = df_design.index.intersection(df_raw_indexed.index)
+
+      if len(common_points) < 3:
+        st.error(
+            f"Error: Found only {len(common_points)} common points between"
+            " Design and Raw data. At least 3 common points are required!"
+        )
       else:
-        R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
+        design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
+        raw_pts = df_raw_indexed.loc[common_points, ["X", "Y", "Z"]].values
 
-      # Extract active station segment based on user row range
-      start_r, end_r = station_configs[selected_station_name]
-      active_df = df_raw.iloc[start_r:end_r].copy()
-      active_indexed = active_df.set_index("Point")
+        if "3D" in alignment_mode:
+          R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
+        else:
+          R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
 
-      active_pts = active_indexed[["X", "Y", "Z"]].values
-      transformed_active_pts = np.dot(active_pts, R.T) + T
-      df_active_after = pd.DataFrame(
-          transformed_active_pts,
-          index=active_indexed.index,
-          columns=["X", "Y", "Z"],
-      )
-
-      # Global Error Analysis for Common Points
-      all_raw_pts = df_raw_indexed[["X", "Y", "Z"]].values
-      transformed_all_pts = np.dot(all_raw_pts, R.T) + T
-      df_after_global = pd.DataFrame(
-          transformed_all_pts,
-          index=df_raw_indexed.index,
-          columns=["X", "Y", "Z"],
-      )
-
-      error_df = df_design.loc[common_points].copy()
-      error_df.rename(
-          columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
-          inplace=True,
-      )
-      error_df["After_X"] = df_after_global.loc[common_points, "X"]
-      error_df["After_Y"] = df_after_global.loc[common_points, "Y"]
-      error_df["After_Z"] = df_after_global.loc[common_points, "Z"]
-
-      error_df["Err_X"] = error_df["After_X"] - error_df["Design_X"]
-      error_df["Err_Y"] = error_df["After_Y"] - error_df["Design_Y"]
-      error_df["Err_Z"] = error_df["After_Z"] - error_df["Design_Z"]
-      error_df["Total_Error"] = np.sqrt(
-          error_df["Err_X"] ** 2
-          + error_df["Err_Y"] ** 2
-          + error_df["Err_Z"] ** 2
-      )
-
-      # --- Main UI Display ---
-      st.markdown("---")
-      st.subheader(
-          f"📊 Active Analysis: {selected_station_name} ({alignment_mode})"
-      )
-
-      col1, col2 = st.columns(2)
-      with col1:
-        st.text("Rotation Matrix R:")
-        st.write(
-            np.array2string(R, formatter={"float_kind": lambda x: "%.4f" % x})
-        )
-      with col2:
-        st.text("Translation Vector T:")
-        st.write(
-            np.array2string(T, formatter={"float_kind": lambda x: "%.4f" % x})
+        # Transform the selected station data
+        active_df = generated_stations[selected_station_to_fit]
+        active_indexed = active_df.set_index("Point")
+        active_pts = active_indexed[["X", "Y", "Z"]].values
+        transformed_active_pts = np.dot(active_pts, R.T) + T
+        df_active_after = pd.DataFrame(
+            transformed_active_pts,
+            index=active_indexed.index,
+            columns=["X", "Y", "Z"],
         )
 
-      st.markdown("---")
-      st.subheader(
-          f"📋 Aligned Coordinates Preview ({selected_station_name})"
-      )
-      st.dataframe(df_active_after.style.format("{:.4f}"))
+        # Global Error Analysis for Common Points
+        all_raw_pts = df_raw_indexed[["X", "Y", "Z"]].values
+        transformed_all_pts = np.dot(all_raw_pts, R.T) + T
+        df_after_global = pd.DataFrame(
+            transformed_all_pts,
+            index=df_raw_indexed.index,
+            columns=["X", "Y", "Z"],
+        )
 
-      active_csv_data = df_active_after.reset_index().to_csv(
-          index=False, header=False, float_format="%.4f"
-      )
-      safe_name = selected_station_name.replace(" ", "_").lower()
-      st.download_button(
-          label=f"📥 Download Aligned {selected_station_name} Result (.CSV)",
-          data=active_csv_data,
-          file_name=f"{safe_name}_after.CSV",
-          mime="text/csv",
-      )
+        error_df = df_design.loc[common_points].copy()
+        error_df.rename(
+            columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
+            inplace=True,
+        )
+        error_df["After_X"] = df_after_global.loc[common_points, "X"]
+        error_df["After_Y"] = df_after_global.loc[common_points, "Y"]
+        error_df["After_Z"] = df_after_global.loc[common_points, "Z"]
 
-      st.markdown("---")
-      st.subheader(
-          "🔍 Common Points Error Analysis (Design vs Aligned Result)"
-      )
-      st.markdown(
-          f"Found **{len(common_points)}** common points: "
-          f"{', '.join(common_points.tolist())}"
-      )
-      st.dataframe(
-          error_df[[
-              "Design_X",
-              "Design_Y",
-              "Design_Z",
-              "Err_X",
-              "Err_Y",
-              "Err_Z",
-              "Total_Error",
-          ]].style.format("{:.4f}")
-      )
+        error_df["Err_X"] = error_df["After_X"] - error_df["Design_X"]
+        error_df["Err_Y"] = error_df["After_Y"] - error_df["Design_Y"]
+        error_df["Err_Z"] = error_df["After_Z"] - error_df["Design_Z"]
+        error_df["Total_Error"] = np.sqrt(
+            error_df["Err_X"] ** 2
+            + error_df["Err_Y"] ** 2
+            + error_df["Err_Z"] ** 2
+        )
+
+        # --- Main UI Results Display ---
+        st.markdown("---")
+        st.subheader(
+            f"📊 BestFit Results for [{selected_station_to_fit}] using"
+            f" {alignment_mode}"
+        )
+
+        col_res1, col_res2 = st.columns(2)
+        with col_res1:
+          st.text("Rotation Matrix R:")
+          st.write(
+              np.array2string(R, formatter={"float_kind": lambda x: "%.4f" % x})
+          )
+        with col_res2:
+          st.text("Translation Vector T:")
+          st.write(
+              np.array2string(T, formatter={"float_kind": lambda x: "%.4f" % x})
+          )
+
+        st.markdown("---")
+        st.subheader(
+            f"📋 Aligned Coordinates Preview ({selected_station_to_fit}_after)"
+        )
+        st.dataframe(df_active_after.style.format("{:.4f}"))
+
+        active_csv_data = df_active_after.reset_index().to_csv(
+            index=False, header=False, float_format="%.4f"
+        )
+        safe_name = selected_station_to_fit.replace(" ", "_").lower()
+        st.download_button(
+            label=(
+                f"📥 Download Aligned [{selected_station_to_fit}] Result (.CSV)"
+            ),
+            data=active_csv_data,
+            file_name=f"{safe_name}_after.CSV",
+            mime="text/csv",
+        )
+
+        st.markdown("---")
+        st.subheader(
+            "🔍 Common Points Error Analysis (Design vs Aligned Result)"
+        )
+        st.markdown(
+            f"Found **{len(common_points)}** common points: "
+            f"{', '.join(common_points.tolist())}"
+        )
+        st.dataframe(
+            error_df[[
+                "Design_X",
+                "Design_Y",
+                "Design_Z",
+                "Err_X",
+                "Err_Y",
+                "Err_Z",
+                "Total_Error",
+            ]].style.format("{:.4f}")
+        )
 
   except Exception as e:
     st.error(f"An error occurred during processing: {e}")
 else:
   st.info(
       "👈 Please upload both the **Design / Control CSV** and **Raw Data CSV**"
-      " files in the left sidebar to begin."
+      " files in the sidebar to begin."
   )
