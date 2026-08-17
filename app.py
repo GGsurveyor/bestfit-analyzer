@@ -51,7 +51,7 @@ st.set_page_config(
 )
 
 st.title(
-    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation"
+    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng Yit Fung"
 )
 st.markdown(
     "Upload your **Design / Control file** and **Raw Data file**. Edit raw"
