@@ -51,7 +51,7 @@ st.set_page_config(
 )
 
 st.title(
-    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng Yit Fung"
+    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation"
 )
 st.markdown(
     "Upload your **Design / Control file** and **Raw Data file**. Edit raw"
@@ -89,7 +89,6 @@ if uploaded_design is not None and uploaded_raw is not None:
         " will be used directly for station splitting and calculations."
     )
 
-    # Initialize raw data in session state if not present
     if "df_raw_edited" not in st.session_state:
       st.session_state["df_raw_edited"] = df_raw_initial.copy()
 
@@ -97,16 +96,16 @@ if uploaded_design is not None and uploaded_raw is not None:
         st.session_state["df_raw_edited"],
         num_rows="dynamic",
         use_container_width=True,
+        hide_index=True,  # 隐藏行索引列，默认只显示 Point, X, Y, Z 核心列
         key="raw_data_editor",
     )
     st.session_state["df_raw_edited"] = edited_raw_df
 
-    # Use the edited raw data dataframe for subsequent steps
     df_raw = st.session_state["df_raw_edited"].copy()
     df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
     total_rows = len(df_raw)
 
-    # --- Step 1: Raw Data Station Row Range Configurator (with Edit Table) ---
+    # --- Step 1: Raw Data Station Row Range Configurator ---
     st.markdown("---")
     st.subheader("🛠️ Step 1: Configure & Edit Station Row Ranges")
     st.info(
@@ -142,6 +141,7 @@ if uploaded_design is not None and uploaded_raw is not None:
         df_default_ranges,
         num_rows="fixed",
         use_container_width=True,
+        hide_index=True,
         key="station_ranges_editor",
     )
 
