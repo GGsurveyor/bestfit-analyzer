@@ -92,12 +92,18 @@ if uploaded_design is not None and uploaded_raw is not None:
     if "df_raw_edited" not in st.session_state:
       st.session_state["df_raw_edited"] = df_raw_initial.copy()
 
-    # 使用 hide_index=False 显示 (index) 列
+    # 使用 column_config 强制 X, Y, Z 显示小数点后 4 位
     edited_raw_df = st.data_editor(
         st.session_state["df_raw_edited"],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=False,
+        column_config={
+            "Point": st.column_config.TextColumn("Point", width="medium"),
+            "X": st.column_config.NumberColumn("X", format="%.4f"),
+            "Y": st.column_config.NumberColumn("Y", format="%.4f"),
+            "Z": st.column_config.NumberColumn("Z", format="%.4f"),
+        },
         key="raw_data_editor",
     )
     st.session_state["df_raw_edited"] = edited_raw_df
