@@ -45,16 +45,16 @@ class BestFitEngine:
 
 
 st.set_page_config(
-    page_title="3D/2D BestFit & Multi-Station Selector System",
+    page_title="3D/2D BestFit & Raw Data Station Selector",
     page_icon="📐",
     layout="wide",
 )
 
-st.title("📐 3D / 2D BestFit Alignment & Sub-Station Selection System")
+st.title("📐 3D / 2D BestFit Alignment & Raw Data Station Selector")
 st.markdown(
-    "Upload your **Design / Control file**, **Raw Data file**, and optional"
-    " **Sub-Station files (STN1, STN2, STN3)**. Choose your target sub-station"
-    " to analyze."
+    "Upload your **Design / Control file** and **Raw Data file**. Select the"
+    " target sub-station segment (derived by row ranges from Raw Data) to"
+    " analyze."
 )
 
 # Sidebar Configuration
@@ -73,17 +73,6 @@ uploaded_raw = st.sidebar.file_uploader(
     "Upload Raw Data CSV", type=["csv"], key="raw"
 )
 
-st.sidebar.markdown("### 🏢 Sub-Station Files (Optional)")
-uploaded_stn1 = st.sidebar.file_uploader(
-    "Upload STN 1 CSV", type=["csv"], key="stn1"
-)
-uploaded_stn2 = st.sidebar.file_uploader(
-    "Upload STN 2 CSV", type=["csv"], key="stn2"
-)
-uploaded_stn3 = st.sidebar.file_uploader(
-    "Upload STN 3 CSV", type=["csv"], key="stn3"
-)
-
 if uploaded_design is not None and uploaded_raw is not None:
   try:
     df_design = pd.read_csv(
@@ -99,44 +88,33 @@ if uploaded_design is not None and uploaded_raw is not None:
     df_design.set_index("Point", inplace=True)
     df_raw_indexed = df_raw.set_index("Point")
 
-    # --- Build Sub-Station Pool ---
-    station_pool = {"Global Raw Data": df_raw}
+    # --- Automatically Partition Raw Data by Row Ranges (using BS markers) ---
+    bs_indices = df_raw[
+        df_raw["Point"].str.contains("^BS", case=False, na=False)
+    ].index.tolist()
 
-    if uploaded_stn1 is not None:
-      df_s1 = pd.read_csv(uploaded_stn1, header=None, names=["Point", "X", "Y", "Z"])
-      df_s1["Point"] = df_s1["Point"].astype(str).str.strip()
-      station_pool["Sub-Station 1 (STN1)"] = df_s1
-
-    if uploaded_stn2 is not None:
-      df_s2 = pd.read_csv(uploaded_stn2, header=None, names=["Point", "X", "Y", "Z"])
-      df_s2["Point"] = df_s2["Point"].astype(str).str.strip()
-      station_pool["Sub-Station 2 (STN2)"] = df_s2
-
-    if uploaded_stn3 is not None:
-      df_s3 = pd.read_csv(uploaded_stn3, header=None, names=["Point", "X", "Y", "Z"])
-      df_s3["Point"] = df_s3["Point"].astype(str).str.strip()
-      station_pool["Sub-Station 3 (STN3)"] = df_s3
-
-    # If no individual STN files uploaded, automatically partition raw data by BS
-    if len(station_pool) == 1:
-      bs_indices = df_raw[
-          df_raw["Point"].str.contains("^BS", case=False, na=False)
-      ].index.tolist()
-      if bs_indices:
-        for i in range(len(bs_indices)):
-          start_idx = bs_indices[i]
-          end_idx = (
-              bs_indices[i + 1] if i + 1 < len(bs_indices) else len(df_raw)
-          )
-          bs_name = df_raw.loc[start_idx, "Point"]
-          stn_df = df_raw.iloc[start_idx:end_idx].copy()
-          station_pool[f"Auto-Station {i+1} ({bs_name})"] = stn_df
+    station_ranges = {}
+    if bs_indices:
+      for i in range(len(bs_indices)):
+        start_idx = bs_indices[i]
+        end_idx = (
+            bs_indices[i + 1] if i + 1 < len(bs_indices) else len(df_raw)
+        )
+        bs_name = df_raw.loc[start_idx, "Point"]
+        # Format human-readable row range (1-based indexing for display)
+        range_label = (
+            f"Station {i+1} ({bs_name}) [Rows {start_idx+1} to {end_idx}]"
+        )
+        station_ranges[range_label] = df_raw.iloc[start_idx:end_idx].copy()
+    else:
+      station_ranges[f"Full Raw Data [Rows 1 to {len(df_raw)}]"] = df_raw
 
     # --- Sidebar Sub-Station Selector ---
     st.sidebar.markdown("---")
-    st.sidebar.header("🎯 Sub-Station Selector")
+    st.sidebar.header("🎯 Raw Data Station Selector")
     selected_station_name = st.sidebar.selectbox(
-        "Choose Target Sub-Station", options=list(station_pool.keys())
+        "Choose Station Segment from Raw Data",
+        options=list(station_ranges.keys()),
     )
 
     # Get common points for BestFit calculation
@@ -156,8 +134,8 @@ if uploaded_design is not None and uploaded_raw is not None:
       else:
         R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
 
-      # Target active sub-station transformation
-      active_df = station_pool[selected_station_name]
+      # Target active station segment transformation
+      active_df = station_ranges[selected_station_name]
       active_indexed = active_df.set_index("Point")
       active_pts = active_indexed[["X", "Y", "Z"]].values
       transformed_active_pts = np.dot(active_pts, R.T) + T
@@ -196,7 +174,7 @@ if uploaded_design is not None and uploaded_raw is not None:
 
       # --- Main UI Display ---
       st.subheader(
-          f"📊 Active Sub-Station: {selected_station_name} ({alignment_mode})"
+          f"📊 Active Selection: {selected_station_name} ({alignment_mode})"
       )
 
       col1, col2 = st.columns(2)
@@ -212,21 +190,20 @@ if uploaded_design is not None and uploaded_raw is not None:
         )
 
       st.markdown("---")
-      st.subheader(
-          f"📋 Aligned Coordinates Preview ({selected_station_name})"
-      )
+      st.subheader("📋 Aligned Coordinates Preview (Selected Station Segment)")
       st.dataframe(df_active_after.style.format("{:.4f}"))
 
       active_csv_data = df_active_after.reset_index().to_csv(
           index=False, header=False, float_format="%.4f"
       )
       safe_name = (
-          selected_station_name.replace(" ", "_")
-          .replace("(", "")
-          .replace(")", "")
+          selected_station_name.split("[")[0]
+          .strip()
+          .replace(" ", "_")
+          .lower()
       )
       st.download_button(
-          label=f"📥 Download Aligned {selected_station_name} Result (.CSV)",
+          label=f"📥 Download Aligned Segment Result (.CSV)",
           data=active_csv_data,
           file_name=f"{safe_name}_after.CSV",
           mime="text/csv",
