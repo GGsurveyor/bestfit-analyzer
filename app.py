@@ -55,8 +55,8 @@ st.title(
 )
 st.markdown(
     "Upload your **Design / Control file** and **Raw Data file**. Define"
-    " station row ranges, confirm to generate independent station CSVs, and"
-    " choose which station to BestFit."
+    " station row ranges, generate independent station CSVs, and perform"
+    " independent BestFit per station."
 )
 
 # Sidebar Configuration
@@ -204,59 +204,77 @@ if uploaded_design is not None and uploaded_raw is not None:
             ],
         )
 
-      # Get common points for BestFit calculation
-      common_points = df_design.index.intersection(df_raw_indexed.index)
+      # Extract active station segment
+      active_df = generated_stations[selected_station_to_fit].copy()
+      # Ensure point names are stripped and set as index
+      active_df["Point"] = active_df["Point"].astype(str).str.strip()
+      active_indexed = active_df.set_index("Point")
 
-      if len(common_points) < 3:
+      # Find common points specifically existing in THIS station and Design data
+      station_common_points = df_design.index.intersection(
+          active_indexed.index
+      )
+
+      if len(station_common_points) < 3:
         st.error(
-            f"Error: Found only {len(common_points)} common points between"
-            " Design and Raw data. At least 3 common points are required!"
+            f"Error: Station [{selected_station_to_fit}] contains only"
+            f" {len(station_common_points)} common points with Design data. At"
+            " least 3 common points are required for BestFit!"
         )
       else:
-        design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
-        raw_pts = df_raw_indexed.loc[common_points, ["X", "Y", "Z"]].values
+        design_pts = df_design.loc[
+            station_common_points, ["X", "Y", "Z"]
+        ].values
+        raw_pts = active_indexed.loc[
+            station_common_points, ["X", "Y", "Z"]
+        ].values
 
         if "3D" in alignment_mode:
           R, T = BestFitEngine.best_fit_3d(raw_pts, design_pts)
         else:
           R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
 
-        # Transform the selected station data
-        active_df = generated_stations[selected_station_to_fit]
-        active_indexed = active_df.set_index("Point")
-        active_pts = active_indexed[["X", "Y", "Z"]].values
-        transformed_active_pts = np.dot(active_pts, R.T) + T
+        # Transform all points in this specific station safely
+        all_station_pts = active_indexed[["X", "Y", "Z"]].values
+        transformed_active_pts = np.dot(all_station_pts, R.T) + T
         df_active_after = pd.DataFrame(
             transformed_active_pts,
             index=active_indexed.index,
             columns=["X", "Y", "Z"],
         )
 
-        # Global Error Analysis for Common Points
-        all_raw_pts = df_raw_indexed[["X", "Y", "Z"]].values
-        transformed_all_pts = np.dot(all_raw_pts, R.T) + T
-        df_after_global = pd.DataFrame(
-            transformed_all_pts,
-            index=df_raw_indexed.index,
-            columns=["X", "Y", "Z"],
+        # Error Analysis for Common Points in this station
+        transformed_common_pts = (
+            np.dot(
+                active_indexed.loc[
+                    station_common_points, ["X", "Y", "Z"]
+                ].values,
+                R.T,
+            )
+            + T
+        )
+        df_common_after = pd.DataFrame(
+            transformed_common_pts,
+            index=station_common_points,
+            columns=["After_X", "After_Y", "After_Z"],
         )
 
-        error_df = df_design.loc[common_points].copy()
+        error_df = df_design.loc[station_common_points].copy()
         error_df.rename(
             columns={"X": "Design_X", "Y": "Design_Y", "Z": "Design_Z"},
             inplace=True,
         )
-        error_df["After_X"] = df_after_global.loc[common_points, "X"]
-        error_df["After_Y"] = df_after_global.loc[common_points, "Y"]
-        error_df["After_Z"] = df_after_global.loc[common_points, "Z"]
+        error_df["After_X"] = df_common_after["After_X"]
+        error_df["After_Y"] = df_common_after["After_Y"]
+        error_df["After_Z"] = df_common_after["After_Z"]
 
-        error_df["Err_X"] = error_df["After_X"] - error_df["Design_X"]
-        error_df["Err_Y"] = error_df["After_Y"] - error_df["Design_Y"]
-        error_df["Err_Z"] = error_df["After_Z"] - error_df["Design_Z"]
+        error_df["Delta E"] = error_df["After_X"] - error_df["Design_X"]
+        error_df["Delta N"] = error_df["After_Y"] - error_df["Design_Y"]
+        error_df["Delta El"] = error_df["After_Z"] - error_df["Design_Z"]
         error_df["Total_Error"] = np.sqrt(
-            error_df["Err_X"] ** 2
-            + error_df["Err_Y"] ** 2
-            + error_df["Err_Z"] ** 2
+            error_df["Delta E"] ** 2
+            + error_df["Delta N"] ** 2
+            + error_df["Delta El"] ** 2
         )
 
         # --- Main UI Results Display ---
@@ -298,21 +316,20 @@ if uploaded_design is not None and uploaded_raw is not None:
         )
 
         st.markdown("---")
-        st.subheader(
-            "🔍 Common Points Error Analysis (Design vs Aligned Result)"
-        )
+        st.subheader("🔍 2D/3D Fit Deviations (Design vs Aligned Station Data)")
         st.markdown(
-            f"Found **{len(common_points)}** common points: "
-            f"{', '.join(common_points.tolist())}"
+            f"Found **{len(station_common_points)}** common control points in"
+            f" **{selected_station_to_fit}**: "
+            f"{', '.join(station_common_points.tolist())}"
         )
         st.dataframe(
             error_df[[
                 "Design_X",
                 "Design_Y",
                 "Design_Z",
-                "Err_X",
-                "Err_Y",
-                "Err_Z",
+                "Delta E",
+                "Delta N",
+                "Delta El",
                 "Total_Error",
             ]].style.format("{:.4f}")
         )
