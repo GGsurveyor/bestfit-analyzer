@@ -45,7 +45,7 @@ class BestFitEngine:
 
 
 st.set_page_config(
-    page_title="3D/2D BestFit & Interactive Station Splitter",
+    page_title="3D/2D BestFit & Interactive Station Splitter Made By Ng Yit Fung",
     page_icon="📐",
     layout="wide",
 )
@@ -255,7 +255,7 @@ if uploaded_design is not None and uploaded_raw is not None:
             columns=["X", "Y", "Z"],
         )
 
-        # Error Analysis for ALL common points (including excluded ones for comparison if needed, or active ones)
+        # Error Analysis for ALL common points
         transformed_all_common = (
             np.dot(
                 active_indexed.loc[
@@ -289,7 +289,6 @@ if uploaded_design is not None and uploaded_raw is not None:
             + error_df["Delta El"] ** 2
         )
 
-        # Mark excluded status in table
         error_df["Status"] = [
             "Excluded (不参与计算)" if pt in excluded_points else "Active (参与计算)"
             for pt in error_df.index
@@ -314,25 +313,7 @@ if uploaded_design is not None and uploaded_raw is not None:
               np.array2string(T, formatter={"float_kind": lambda x: "%.4f" % x})
           )
 
-        st.markdown("---")
-        st.subheader(
-            f"📋 Aligned Coordinates Preview ({selected_station_to_fit}_after)"
-        )
-        st.dataframe(df_active_after.style.format("{:.4f}"))
-
-        active_csv_data = df_active_after.reset_index().to_csv(
-            index=False, header=False, float_format="%.4f"
-        )
-        safe_name = selected_station_to_fit.replace(" ", "_").lower()
-        st.download_button(
-            label=(
-                f"📥 Download Aligned [{selected_station_to_fit}] Result (.CSV)"
-            ),
-            data=active_csv_data,
-            file_name=f"{safe_name}_after.CSV",
-            mime="text/csv",
-        )
-
+        # 1. First show Fit Deviations Analysis
         st.markdown("---")
         st.subheader("🔍 2D/3D Fit Deviations (Design vs Aligned Station Data)")
         st.markdown(
@@ -360,6 +341,26 @@ if uploaded_design is not None and uploaded_raw is not None:
                 "Delta El": "{:.4f}",
                 "Total_Error": "{:.4f}",
             })
+        )
+
+        # 2. Then show Aligned Coordinates Preview and Download button at the very bottom
+        st.markdown("---")
+        st.subheader(
+            f"📋 Aligned Coordinates Preview ({selected_station_to_fit}_after)"
+        )
+        st.dataframe(df_active_after.style.format("{:.4f}"))
+
+        active_csv_data = df_active_after.reset_index().to_csv(
+            index=False, header=False, float_format="%.4f"
+        )
+        safe_name = selected_station_to_fit.replace(" ", "_").lower()
+        st.download_button(
+            label=(
+                f"📥 Download Aligned [{selected_station_to_fit}] Result (.CSV)"
+            ),
+            data=active_csv_data,
+            file_name=f"{safe_name}_after.CSV",
+            mime="text/csv",
         )
 
   except Exception as e:
