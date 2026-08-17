@@ -51,7 +51,7 @@ st.set_page_config(
 )
 
 st.title(
-    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng Yit Fung"
+    "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng yit Fung"
 )
 st.markdown(
     "Upload your **Design / Control file** and **Raw Data file**. Edit raw"
@@ -90,11 +90,16 @@ if uploaded_design is not None and uploaded_raw is not None:
     )
 
     if "df_raw_edited" not in st.session_state:
-      st.session_state["df_raw_edited"] = df_raw_initial.copy()
+      temp_init = df_raw_initial.copy()
+      temp_init.index = range(1, len(temp_init) + 1)  # 让索引从 1 开始
+      st.session_state["df_raw_edited"] = temp_init
 
-    # 使用 column_config 强制 X, Y, Z 显示小数点后 4 位
+    # 确保每次传入时索引都从 1 开始
+    current_df = st.session_state["df_raw_edited"].copy()
+    current_df.index = range(1, len(current_df) + 1)
+
     edited_raw_df = st.data_editor(
-        st.session_state["df_raw_edited"],
+        current_df,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=False,
