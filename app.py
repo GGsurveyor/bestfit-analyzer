@@ -54,9 +54,9 @@ st.title(
     "📐 3D / 2D BestFit Alignment & Multi-Station Interactive Workstation Made By Ng Yit Fung"
 )
 st.markdown(
-    "Upload your **Design / Control file** and **Raw Data file**. Edit"
-    " station row ranges interactively, generate independent station CSVs,"
-    " exclude specific control points, and perform BestFit."
+    "Upload your **Design / Control file** and **Raw Data file**. Edit raw"
+    " data, configure station ranges interactively, exclude specific control"
+    " points, and perform BestFit."
 )
 
 # Sidebar Configuration
@@ -73,31 +73,46 @@ if uploaded_design is not None and uploaded_raw is not None:
     df_design = pd.read_csv(
         uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
     )
-    df_raw = pd.read_csv(
+    df_raw_initial = pd.read_csv(
         uploaded_raw, header=None, names=["Point", "X", "Y", "Z"]
     )
 
     # Clean point names
     df_design["Point"] = df_design["Point"].astype(str).str.strip()
-    df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
     df_design.set_index("Point", inplace=True)
-    df_raw_indexed = df_raw.set_index("Point")
 
+    # --- Feature: Edit Raw Data Table ---
+    st.markdown("---")
+    st.subheader("✏️ Edit Raw Data (原始数据在线编辑)")
+    st.markdown(
+        "You can inspect and edit the uploaded raw data table below. Any changes"
+        " will be used directly for station splitting and calculations."
+    )
+
+    # Initialize raw data in session state if not present
+    if "df_raw_edited" not in st.session_state:
+      st.session_state["df_raw_edited"] = df_raw_initial.copy()
+
+    edited_raw_df = st.data_editor(
+        st.session_state["df_raw_edited"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key="raw_data_editor",
+    )
+    st.session_state["df_raw_edited"] = edited_raw_df
+
+    # Use the edited raw data dataframe for subsequent steps
+    df_raw = st.session_state["df_raw_edited"].copy()
+    df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
     total_rows = len(df_raw)
 
     # --- Step 1: Raw Data Station Row Range Configurator (with Edit Table) ---
     st.markdown("---")
     st.subheader("🛠️ Step 1: Configure & Edit Station Row Ranges")
     st.info(
-        f"Raw Data loaded successfully! Total rows: **{total_rows}**. You can"
-        " adjust the Station Name, Start Row, and End Row directly in the table"
-        " below."
+        f"Total rows in Raw Data: **{total_rows}**. You can adjust the Station"
+        " Name, Start Row, and End Row directly in the table below."
     )
-
-    with st.expander("📄 View Raw Data Preview & Line Numbers", expanded=False):
-      preview_df = df_raw.copy()
-      preview_df.index = range(1, len(preview_df) + 1)
-      st.dataframe(preview_df, height=220)
 
     col_cfg1, _ = st.columns([1, 2])
     with col_cfg1:
@@ -109,7 +124,6 @@ if uploaded_design is not None and uploaded_raw is not None:
           step=1,
       )
 
-    # Generate initial default chunks for data_editor
     default_ranges_data = []
     chunk_size = total_rows // num_stations
     for i in range(num_stations):
@@ -138,7 +152,6 @@ if uploaded_design is not None and uploaded_raw is not None:
         use_container_width=True,
     )
 
-    # Parse edited table into config dict
     temp_configs = {}
     valid_config = True
     for index, row in edited_ranges_df.iterrows():
@@ -153,7 +166,6 @@ if uploaded_design is not None and uploaded_raw is not None:
       if r_start > r_end or r_start < 1 or r_end > total_rows:
         valid_config = False
 
-      # Convert 1-based to 0-based for pandas iloc slicing (start inclusive, end exclusive in iloc -> r_end is inclusive row index, so iloc[start-1:end])
       temp_configs[s_name] = (r_start - 1, r_end)
 
     if confirm_btn or "stations_generated" in st.session_state:
@@ -213,17 +225,14 @@ if uploaded_design is not None and uploaded_raw is not None:
               ],
           )
 
-        # Extract active station segment
         active_df = generated_stations[selected_station_to_fit].copy()
         active_df["Point"] = active_df["Point"].astype(str).str.strip()
         active_indexed = active_df.set_index("Point")
 
-        # Find common points between this station and Design data
         all_station_common_points = df_design.index.intersection(
             active_indexed.index
         )
 
-        # Option to exclude specific points from BestFit calculation
         excluded_points = st.multiselect(
             "🚫 Exclude Control Points from Calculation (不在计算/拟合范围内)",
             options=all_station_common_points.tolist(),
@@ -234,7 +243,6 @@ if uploaded_design is not None and uploaded_raw is not None:
             ),
         )
 
-        # Effective common points for calculation
         station_common_points = all_station_common_points.difference(
             excluded_points
         )
@@ -258,7 +266,6 @@ if uploaded_design is not None and uploaded_raw is not None:
           else:
             R, T = BestFitEngine.best_fit_2d(raw_pts, design_pts)
 
-          # Transform all points in this specific station safely
           all_station_pts = active_indexed[["X", "Y", "Z"]].values
           transformed_active_pts = np.dot(all_station_pts, R.T) + T
           df_active_after = pd.DataFrame(
@@ -267,7 +274,6 @@ if uploaded_design is not None and uploaded_raw is not None:
               columns=["X", "Y", "Z"],
           )
 
-          # Error Analysis for ALL common points
           transformed_all_common = (
               np.dot(
                   active_indexed.loc[
