@@ -78,6 +78,10 @@ if uploaded_design is not None and uploaded_before is not None:
         uploaded_before, header=None, names=["Point", "X", "Y", "Z"]
     )
 
+    # 💡 Fix: Convert Point column to string and strip spaces to avoid int vs str type mismatch
+    df_design["Point"] = df_design["Point"].astype(str).str.strip()
+    df_before["Point"] = df_before["Point"].astype(str).str.strip()
+
     df_design.set_index("Point", inplace=True)
     df_before.set_index("Point", inplace=True)
 
@@ -85,8 +89,8 @@ if uploaded_design is not None and uploaded_before is not None:
 
     if len(common_points) < 3:
       st.error(
-          "Error: The number of common points is less than 3, unable to"
-          " perform BestFit calculation!"
+          f"Error: Found only {len(common_points)} common points. At least 3"
+          " common points are required to perform BestFit calculation!"
       )
     else:
       design_pts = df_design.loc[common_points, ["X", "Y", "Z"]].values
