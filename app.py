@@ -689,7 +689,6 @@ if uploaded_raw is not None:
                     doc.header["$PDMODE"] = point_style_options[pdmode_val]
                     doc.header["$PDSIZE"] = pdsize_val
 
-                    # 使用标准安全的 -TEXT 命令和 POINT 命令生成 SCR，避免 MTEXT 和 SPHERE 的多行崩溃问题
                     scr_lines = [
                         "ucs W",
                         "Osnapcoord 1",
@@ -713,10 +712,13 @@ if uploaded_raw is not None:
                                 },
                             )
 
-                            # 2. SCR 脚本：用 POINT 命令代替 SPHERE
+                            # 2. SCR 脚本：使用分行的 SPHERE 3D 指令
+                            scr_lines.append("SPHERE")
                             scr_lines.append(
-                                f"POINT {x_val:.7f},{y_val:.7f},{z_val:.7f}"
+                                f"{x_val:.7f},{y_val:.7f},{z_val:.7f}"
                             )
+                            scr_lines.append("D")
+                            scr_lines.append(f"{pdsize_val * 0.01:.5f}")
 
                             line_spacing_offset = 0.0
                             for field in display_options:
@@ -750,8 +752,7 @@ if uploaded_raw is not None:
                                     },
                                 )
 
-                                # SCR 脚本：使用稳定的 -TEXT 命令（无需复杂的角点计算和结束回车）
-                                # 语法: -TEXT 起点 高度 旋转角度 文字内容
+                                # SCR 脚本：使用稳定的 -TEXT 命令
                                 scr_lines.append(
                                     f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
                                     f" {cfg['height']:.4f} 0 {text_content}"
