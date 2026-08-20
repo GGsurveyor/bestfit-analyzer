@@ -218,15 +218,8 @@ if uploaded_raw is not None:
                         f"#### Managing **{s_name}** (Rows {s_start+1} to"
                         f" {s_end})"
                     )
-                    stn_raw_df = df_raw.iloc[s_start:s_end].copy()
-                    st.dataframe(
-                        stn_raw_df.style.format({
-                            "X": "{:.4f}",
-                            "Y": "{:.4f}",
-                            "Z": "{:.4f}",
-                        })
-                    )
 
+                    stn_raw_df = df_raw.iloc[s_start:s_end].copy()
                     stn_indexed = stn_raw_df.set_index("Point")
 
                     if df_ctrl is not None:
@@ -312,29 +305,49 @@ if uploaded_raw is not None:
                             " directly for this station."
                         )
 
-                    if s_name in st.session_state["station_fitted_dfs"]:
-                        st.markdown(
-                            f"**Result Preview ({s_name}_after):**"
-                        )
+                    st.markdown("---")
+                    # 使用 3 列横向展示：左边放原始区段数据，中间放拟合后结果，右边放偏差分析
+                    col_h1, col_h2, col_h3 = st.columns(3)
+
+                    with col_h1:
+                        st.markdown(f"**📂 Raw Data ({s_name})**")
                         st.dataframe(
-                            st.session_state["station_fitted_dfs"][
-                                s_name
-                            ].style.format("{:.4f}")
+                            stn_raw_df.style.format({
+                                "X": "{:.4f}",
+                                "Y": "{:.4f}",
+                                "Z": "{:.4f}",
+                            }),
+                            use_container_width=True,
                         )
 
-                        if f"err_{s_name}" in st.session_state:
-                            st.markdown(
-                                "📊 **Fit Deviation Analysis (Control Points):**"
+                    with col_h2:
+                        st.markdown(f"**📈 Result Preview ({s_name}_after)**")
+                        if s_name in st.session_state["station_fitted_dfs"]:
+                            st.dataframe(
+                                st.session_state["station_fitted_dfs"][
+                                    s_name
+                                ].style.format("{:.4f}"),
+                                use_container_width=True,
                             )
+                        else:
+                            st.info("Pending fit execution.")
+
+                    with col_h3:
+                        st.markdown(f"**📊 Fit Deviation Analysis**")
+                        if f"err_{s_name}" in st.session_state:
                             st.dataframe(
                                 st.session_state[f"err_{s_name}"].style.format({
                                     "Delta E": "{:.4f}",
                                     "Delta N": "{:.4f}",
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
-                                })
+                                }),
+                                use_container_width=True,
                             )
+                        else:
+                            st.info("No deviation data yet.")
 
+                    if s_name in st.session_state["station_fitted_dfs"]:
                         stn_csv_data = (
                             st.session_state["station_fitted_dfs"][s_name]
                             .reset_index()
