@@ -106,7 +106,9 @@ if uploaded_raw is not None:
                     names=["Point", "X/E", "Y/N", "Z/EL"],
                 )
             else:
-                df_d_init = pd.DataFrame(columns=["Point", "X/E", "Y/N", "Z/EL"])
+                df_d_init = pd.DataFrame(
+                    columns=["Point", "X/E", "Y/N", "Z/EL"]
+                )
             df_d_init.index = range(1, len(df_d_init) + 1)
             st.session_state["df_design_edited"] = df_d_init
 
@@ -119,7 +121,9 @@ if uploaded_raw is not None:
                     names=["Point", "X/E", "Y/N", "Z/EL"],
                 )
             else:
-                df_c_init = pd.DataFrame(columns=["Point", "X/E", "Y/N", "Z/EL"])
+                df_c_init = pd.DataFrame(
+                    columns=["Point", "X/E", "Y/N", "Z/EL"]
+                )
             df_c_init.index = range(1, len(df_c_init) + 1)
             st.session_state["df_ctrl_edited"] = df_c_init
 
@@ -183,7 +187,7 @@ if uploaded_raw is not None:
             temp_d = st.session_state["df_design_edited"].dropna(
                 subset=["Point"]
             ).copy()
-            if not temp_d.empty:
+            if not temp_d.empty and "X/E" in temp_d.columns:
                 temp_d["Point"] = temp_d["Point"].astype(str).str.strip()
                 temp_d.set_index("Point", inplace=True)
                 df_design = temp_d[["X/E", "Y/N", "Z/EL"]].copy()
@@ -194,7 +198,7 @@ if uploaded_raw is not None:
             temp_c = st.session_state["df_ctrl_edited"].dropna(
                 subset=["Point"]
             ).copy()
-            if not temp_c.empty:
+            if not temp_c.empty and "X/E" in temp_c.columns:
                 temp_c["Point"] = temp_c["Point"].astype(str).str.strip()
                 temp_c.set_index("Point", inplace=True)
                 df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].copy()
