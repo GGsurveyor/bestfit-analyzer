@@ -97,13 +97,14 @@ uploaded_raw = st.sidebar.file_uploader(
 
 if uploaded_raw is not None:
     try:
-        # --- 初始化 Design Points 编辑器状态 ---
+        # --- 初始化 Design Points 编辑器状态 (强制指定 dtype=str 避免类型冲突) ---
         if "df_design_edited" not in st.session_state:
             if uploaded_design is not None:
                 df_d_init = pd.read_csv(
                     uploaded_design,
                     header=None,
                     names=["Point", "X/E", "Y/N", "Z/EL"],
+                    dtype=str,
                 )
             else:
                 df_d_init = pd.DataFrame(
@@ -119,6 +120,7 @@ if uploaded_raw is not None:
                     uploaded_ctrl,
                     header=None,
                     names=["Point", "X/E", "Y/N", "Z/EL"],
+                    dtype=str,
                 )
             else:
                 df_c_init = pd.DataFrame(
@@ -130,7 +132,10 @@ if uploaded_raw is not None:
         # --- 初始化 Raw Data 编辑器状态 ---
         if "df_raw_edited" not in st.session_state:
             df_r_init = pd.read_csv(
-                uploaded_raw, header=None, names=["Point", "X/E", "Y/N", "Z/EL"]
+                uploaded_raw,
+                header=None,
+                names=["Point", "X/E", "Y/N", "Z/EL"],
+                dtype=str,
             )
             df_r_init.index = range(1, len(df_r_init) + 1)
             st.session_state["df_raw_edited"] = df_r_init
@@ -156,6 +161,12 @@ if uploaded_raw is not None:
         with col_row1_1:
             st.subheader("📐 Design Points Editor")
             current_design = st.session_state["df_design_edited"].copy()
+            current_design["Point"] = current_design["Point"].astype(str)
+            # 将坐标列转为浮点数，防止显示报错
+            for col in ["X/E", "Y/N", "Z/EL"]:
+                current_design[col] = pd.to_numeric(
+                    current_design[col], errors="coerce"
+                )
             current_design.index = range(1, len(current_design) + 1)
             edited_design_df = st.data_editor(
                 current_design,
@@ -170,6 +181,11 @@ if uploaded_raw is not None:
         with col_row1_2:
             st.subheader("🎯 Control Points Editor")
             current_ctrl = st.session_state["df_ctrl_edited"].copy()
+            current_ctrl["Point"] = current_ctrl["Point"].astype(str)
+            for col in ["X/E", "Y/N", "Z/EL"]:
+                current_ctrl[col] = pd.to_numeric(
+                    current_ctrl[col], errors="coerce"
+                )
             current_ctrl.index = range(1, len(current_ctrl) + 1)
             edited_ctrl_df = st.data_editor(
                 current_ctrl,
@@ -190,7 +206,7 @@ if uploaded_raw is not None:
             if not temp_d.empty and "X/E" in temp_d.columns:
                 temp_d["Point"] = temp_d["Point"].astype(str).str.strip()
                 temp_d.set_index("Point", inplace=True)
-                df_design = temp_d[["X/E", "Y/N", "Z/EL"]].copy()
+                df_design = temp_d[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                 df_design.columns = ["X", "Y", "Z"]
 
         df_ctrl = None
@@ -201,7 +217,7 @@ if uploaded_raw is not None:
             if not temp_c.empty and "X/E" in temp_c.columns:
                 temp_c["Point"] = temp_c["Point"].astype(str).str.strip()
                 temp_c.set_index("Point", inplace=True)
-                df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].copy()
+                df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                 df_ctrl.columns = ["X", "Y", "Z"]
 
         df_raw = st.session_state["df_raw_edited"].copy()
@@ -215,6 +231,11 @@ if uploaded_raw is not None:
         with col_row2_1:
             st.subheader("✏️ Raw Data Editor")
             current_raw = st.session_state["df_raw_edited"].copy()
+            current_raw["Point"] = current_raw["Point"].astype(str)
+            for col in ["X/E", "Y/N", "Z/EL"]:
+                current_raw[col] = pd.to_numeric(
+                    current_raw[col], errors="coerce"
+                )
             current_raw.index = range(1, len(current_raw) + 1)
             edited_raw_df = st.data_editor(
                 current_raw,
@@ -225,7 +246,6 @@ if uploaded_raw is not None:
                 key="raw_data_editor",
             )
             st.session_state["df_raw_edited"] = edited_raw_df
-            # 重新获取更新后的 raw 数据
             df_raw = st.session_state["df_raw_edited"].copy()
             df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
             total_rows = len(df_raw)
@@ -303,10 +323,9 @@ if uploaded_raw is not None:
 
                     stn_raw_df = df_raw.iloc[s_start:s_end].copy()
                     stn_indexed = stn_raw_df.set_index("Point")
-                    # 准备纯数值计算用的内部结构 (将 X/E, Y/N, Z/EL 映射为标准 X, Y, Z 计算)
                     stn_calc_indexed = stn_indexed[
                         ["X/E", "Y/N", "Z/EL"]
-                    ].copy()
+                    ].astype(float).copy()
                     stn_calc_indexed.columns = ["X", "Y", "Z"]
 
                     if df_ctrl is not None and not df_ctrl.empty:
@@ -715,7 +734,7 @@ if uploaded_raw is not None:
                             "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
                         )
 
-                    # Live Preview Window with Plotly (Mouse Roller Zoom & Pan + Pure Black Background)
+                    # Live Preview Window with Plotly
                     st.markdown("---")
                     st.markdown(
                         "### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom"
@@ -733,7 +752,6 @@ if uploaded_raw is not None:
                     if valid_xs and valid_ys:
                         fig = go.Figure()
 
-                        # 绘制点符号
                         fig.add_trace(
                             go.Scatter(
                                 x=dxf_df["X"],
@@ -750,7 +768,6 @@ if uploaded_raw is not None:
                             )
                         )
 
-                        # 绘制标签文本
                         for idx, row in dxf_df.iterrows():
                             try:
                                 x_val, y_val, z_val = (
@@ -801,7 +818,6 @@ if uploaded_raw is not None:
                             except:
                                 continue
 
-                        # 纯黑背景以及图表布局样式设置
                         fig.update_layout(
                             paper_bgcolor="black",
                             plot_bgcolor="black",
