@@ -114,70 +114,69 @@ if uploaded_raw is not None:
             uploaded_raw, header=None, names=["Point", "X", "Y", "Z"]
         )
 
-        # --- Step 0: Edit Raw Data ---
-        st.markdown("---")
-        st.subheader("✏️ Step 0: Raw Data Online Editor (序号从 1 开始)")
-
         if "df_raw_edited" not in st.session_state:
             temp_init = df_raw_initial.copy()
             temp_init.index = range(1, len(temp_init) + 1)
             st.session_state["df_raw_edited"] = temp_init
 
-        current_df = st.session_state["df_raw_edited"].copy()
-        current_df.index = range(1, len(current_df) + 1)
+        # --- Step 0 & Step 1 横向布局 ---
+        st.markdown("---")
+        col_main1, col_main2 = st.columns(2)
 
-        edited_raw_df = st.data_editor(
-            current_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=False,
-            column_config={
-                "Point": st.column_config.TextColumn("Point", width="medium"),
-                "X": st.column_config.NumberColumn("X", format="%.4f"),
-                "Y": st.column_config.NumberColumn("Y", format="%.4f"),
-                "Z": st.column_config.NumberColumn("Z", format="%.4f"),
-            },
-            key="raw_data_editor",
-        )
-        st.session_state["df_raw_edited"] = edited_raw_df
+        with col_main1:
+            st.subheader("✏️ Step 0: Raw Data Editor")
+            current_df = st.session_state["df_raw_edited"].copy()
+            current_df.index = range(1, len(current_df) + 1)
+
+            edited_raw_df = st.data_editor(
+                current_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=False,
+                column_config={
+                    "Point": st.column_config.TextColumn("Point", width="medium"),
+                    "X": st.column_config.NumberColumn("X", format="%.4f"),
+                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
+                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
+                },
+                key="raw_data_editor",
+            )
+            st.session_state["df_raw_edited"] = edited_raw_df
+
         df_raw = st.session_state["df_raw_edited"].copy()
         df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
         total_rows = len(df_raw)
 
-        # --- Step 1: Station Row Range Configuration ---
-        st.markdown("---")
-        st.subheader("🛠️ Step 1: Configure & Split Station Row Ranges")
-        st.info(
-            f"Total rows in Raw Data: **{total_rows}**. Adjust station names"
-            " and start/end rows below."
-        )
+        with col_main2:
+            st.subheader("🛠️ Step 1: Split Ranges")
+            st.info(f"Total rows in Raw Data: **{total_rows}**.")
 
-        col_cfg1, _ = st.columns([1, 2])
-        with col_cfg1:
             num_stations = st.number_input(
                 "Number of Stations", min_value=1, max_value=10, value=1, step=1
             )
 
-        default_ranges_data = []
-        chunk_size = total_rows // num_stations
-        for i in range(num_stations):
-            start = i * chunk_size + 1
-            end = (
-                (i + 1) * chunk_size if i < num_stations - 1 else total_rows
-            )
-            default_ranges_data.append({
-                "Station Name": f"Station-{i+1}",
-                "Start Row": int(start),
-                "End Row": int(end),
-            })
+            default_ranges_data = []
+            chunk_size = total_rows // num_stations
+            for i in range(num_stations):
+                start = i * chunk_size + 1
+                end = (
+                    (i + 1) * chunk_size
+                    if i < num_stations - 1
+                    else total_rows
+                )
+                default_ranges_data.append({
+                    "Station Name": f"Station-{i+1}",
+                    "Start Row": int(start),
+                    "End Row": int(end),
+                })
 
-        edited_ranges_df = st.data_editor(
-            pd.DataFrame(default_ranges_data),
-            num_rows="fixed",
-            use_container_width=True,
-            hide_index=True,
-            key="station_ranges_editor",
-        )
+            edited_ranges_df = st.data_editor(
+                pd.DataFrame(default_ranges_data),
+                num_rows="fixed",
+                use_container_width=True,
+                hide_index=True,
+                key="station_ranges_editor",
+            )
 
         station_configs = {}
         valid_ranges = True
@@ -306,7 +305,6 @@ if uploaded_raw is not None:
                         )
 
                     st.markdown("---")
-                    # 使用 3 列横向展示：左边放原始区段数据，中间放拟合后结果，右边放偏差分析
                     col_h1, col_h2, col_h3 = st.columns(3)
 
                     with col_h1:
