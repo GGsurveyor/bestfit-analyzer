@@ -68,16 +68,16 @@ CAD_COLORS = {
 }
 
 st.set_page_config(
-    page_title="BestFit & DXF Converter Pro", page_icon="🏗️", layout="wide"
+    page_title="BestFit & DXF/SCR Converter Pro", page_icon="🏗️", layout="wide"
 )
 
 st.title(
-    "🏗️ Multi-Station BestFit Pipeline & CAD DXF Converter - Made by Ng Yit"
-    " Fung"
+    "🏗️ Multi-Station BestFit Pipeline & CAD DXF/SCR Converter - Made by Ng"
+    " Yit Fung"
 )
 st.markdown(
     "Complete Raw Data editing, Station splitting, BestFit analysis, and"
-    " export to CSV/DXF formats."
+    " export to CSV / DXF / SCR formats."
 )
 
 # Sidebar Uploads
@@ -440,11 +440,10 @@ if uploaded_raw is not None:
                             " required."
                         )
                 else:
-                    # 如果没有上传 Design points，直接使用合并后的分站数据作为最终结果
                     st.session_state["df_final_result"] = combined_df
                     st.info(
                         "ℹ️ Design Points not uploaded. Merged stations are"
-                        " ready for DXF preview and conversion below."
+                        " ready for DXF/SCR preview and conversion below."
                     )
 
                 if "df_final_result" in st.session_state:
@@ -480,15 +479,15 @@ if uploaded_raw is not None:
                         ),
                         data=final_csv,
                         file_name=(
-                            "station-1+2+3+4_after_BestFit_Result.CSV"
+                            "station-Combine_All_after_BestFit_Result.CSV"
                         ),
                         mime="text/csv",
                     )
 
-                    # --- Integration of CAD / DXF Converter & Preview ---
+                    # --- Integration of CAD / DXF & SCR Converter & Preview ---
                     st.markdown("---")
                     st.subheader(
-                        "📐 CAD Layout Preview & DXF Converter (From Result)"
+                        "📐 CAD Layout Preview & DXF/SCR Converter (From Result)"
                     )
 
                     dxf_df = st.session_state[
@@ -684,11 +683,17 @@ if uploaded_raw is not None:
                             "No valid coordinate data available to render."
                         )
 
-                    # Generate DXF file
+                    # --- Generate DXF & SCR Files ---
                     doc = ezdxf.new(dxfversion="R2010")
                     msp = doc.modelspace()
                     doc.header["$PDMODE"] = point_style_options[pdmode_val]
                     doc.header["$PDSIZE"] = pdsize_val
+
+                    scr_lines = [
+                        "ucs W",
+                        "Osnapcoord 1",
+                        f"TEXTSIZE {pdsize_val * 0.01:.5f}",
+                    ]
 
                     for idx, row in dxf_df.iterrows():
                         try:
@@ -737,6 +742,35 @@ if uploaded_raw is not None:
                                     },
                                 )
                                 line_spacing_offset += cfg["height"] * 1.3
+
+                            scr_lines.append(
+                                f"SPHERE {x_val:.7f},{y_val:.7f},{z_val:.7f} D"
+                                f" {pdsize_val * 0.01:.5f}"
+                            )
+                            off_x = (
+                                field_configs.get("ID", {}).get(
+                                    "offset_x", 0.5
+                                )
+                                if "ID" in field_configs
+                                else 0.5
+                            )
+                            off_y = (
+                                field_configs.get("ID", {}).get(
+                                    "offset_y", 0.5
+                                )
+                                if "ID" in field_configs
+                                else 0.5
+                            )
+
+                            scr_lines.append(
+                                f"-MTEXT {x_val:.6f},{y_val:.6f},{z_val:.6f}"
+                            )
+                            scr_lines.append(
+                                f"{x_val + off_x:.6f},{y_val + off_y:.6f}"
+                            )
+                            scr_lines.append(f"  {id_val}")
+                            scr_lines.append("")
+
                         except:
                             continue
 
@@ -750,12 +784,26 @@ if uploaded_raw is not None:
                             dxf_data = f.read()
                     os.unlink(tmp.name)
 
-                    st.download_button(
-                        "⬇️ Download Converted DXF File",
-                        data=dxf_data,
-                        file_name="final_station_layout.dxf",
-                        mime="application/dxf",
-                    )
+                    scr_content = "\n".join(scr_lines)
+                    scr_data = scr_content.encode("utf-8")
+
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        st.download_button(
+                            "⬇️ Download Converted DXF File",
+                            data=dxf_data,
+                            file_name="final_station_layout.dxf",
+                            mime="application/dxf",
+                            use_container_width=True,
+                        )
+                    with col_dl2:
+                        st.download_button(
+                            "⬇️ Download AutoCAD Script (.SCR)",
+                            data=scr_data,
+                            file_name="final_station_layout.scr",
+                            mime="text/plain",
+                            use_container_width=True,
+                        )
             else:
                 st.info(
                     "👉 Please complete the individual steps for **all**"
