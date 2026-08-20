@@ -476,7 +476,7 @@ if uploaded_raw is not None:
                     st.download_button(
                         label=(
                             "📥 Download Final Result"
-                            " [station-All_after BestFit.CSV]"
+                            " [station-Combine All_after BestFit.CSV]"
                         ),
                         data=final_csv,
                         file_name=(
