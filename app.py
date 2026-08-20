@@ -727,29 +727,31 @@ if uploaded_raw is not None:
                                 else:
                                     text_content = f"EL: {fmt.format(z_val)}"
 
+                                # 计算和预览完全一致的偏移坐标
+                                fx = x_val + cfg["offset_x"]
+                                fy = (
+                                    y_val
+                                    + cfg["offset_y"]
+                                    - line_spacing_offset
+                                )
+
                                 # 1. DXF 文本写入
                                 msp.add_text(
                                     text_content,
                                     dxfattribs={
-                                        "insert": (
-                                            x_val + cfg["offset_x"],
-                                            y_val
-                                            + cfg["offset_y"]
-                                            - line_spacing_offset,
-                                            z_val,
-                                        ),
+                                        "insert": (fx, fy, z_val),
                                         "height": cfg["height"],
                                         "color": cfg["color_idx"],
                                     },
                                 )
 
-                                # 2. SCR 脚本：同步循环写入每一个勾选的字段
+                                # 2. SCR 脚本：修正 MTEXT 的起止点使其与 DXF 预览一致
                                 scr_lines.append(
-                                    f"-MTEXT"
-                                    f" {x_val:.6f},{y_val:.6f},{z_val:.6f}"
+                                    f"-MTEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
                                 )
+                                # 第二个点给出一个宽度/对角延伸（例如向右向下偏移一点或直接使用相同点）
                                 scr_lines.append(
-                                    f"{x_val + cfg['offset_x']:.6f},{y_val + cfg['offset_y'] - line_spacing_offset:.6f}"
+                                    f"{fx + cfg['height'] * 10:.6f},{fy - cfg['height'] * 1.5:.6f},{z_val:.6f}"
                                 )
                                 scr_lines.append(f"  {text_content}")
                                 scr_lines.append("")
