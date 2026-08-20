@@ -154,7 +154,6 @@ if uploaded_raw is not None:
 
         col_cfg1, _ = st.columns([1, 2])
         with col_cfg1:
-            # 默认值设定为 1
             num_stations = st.number_input(
                 "Number of Stations", min_value=1, max_value=10, value=1, step=1
             )
@@ -690,10 +689,10 @@ if uploaded_raw is not None:
                     doc.header["$PDMODE"] = point_style_options[pdmode_val]
                     doc.header["$PDSIZE"] = pdsize_val
 
+                    # 使用标准安全的 -TEXT 命令和 POINT 命令生成 SCR，避免 MTEXT 和 SPHERE 的多行崩溃问题
                     scr_lines = [
                         "ucs W",
                         "Osnapcoord 1",
-                        f"TEXTSIZE {pdsize_val * 0.01:.5f}",
                     ]
 
                     for idx, row in dxf_df.iterrows():
@@ -706,11 +705,17 @@ if uploaded_raw is not None:
                             id_val = str(row["ID"])
                             fmt = f"{{:.{decimal_places}f}}"
 
+                            # 1. DXF 实体生成
                             msp.add_point(
                                 (x_val, y_val, z_val),
                                 dxfattribs={
                                     "color": CAD_COLORS[point_color][1]
                                 },
+                            )
+
+                            # 2. SCR 脚本：用 POINT 命令代替 SPHERE
+                            scr_lines.append(
+                                f"POINT {x_val:.7f},{y_val:.7f},{z_val:.7f}"
                             )
 
                             line_spacing_offset = 0.0
@@ -728,7 +733,6 @@ if uploaded_raw is not None:
                                 else:
                                     text_content = f"EL: {fmt.format(z_val)}"
 
-                                # 计算和预览完全一致的偏移坐标
                                 fx = x_val + cfg["offset_x"]
                                 fy = (
                                     y_val
@@ -736,7 +740,7 @@ if uploaded_raw is not None:
                                     - line_spacing_offset
                                 )
 
-                                # 1. DXF 文本写入
+                                # DXF 文本写入
                                 msp.add_text(
                                     text_content,
                                     dxfattribs={
@@ -746,23 +750,14 @@ if uploaded_raw is not None:
                                     },
                                 )
 
-                                # 2. SCR 脚本：修正 MTEXT 的起止点使其与 DXF 预览一致
+                                # SCR 脚本：使用稳定的 -TEXT 命令（无需复杂的角点计算和结束回车）
+                                # 语法: -TEXT 起点 高度 旋转角度 文字内容
                                 scr_lines.append(
-                                    f"-MTEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
+                                    f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
+                                    f" {cfg['height']:.4f} 0 {text_content}"
                                 )
-                                scr_lines.append(
-                                    f"{fx + cfg['height'] * 10:.6f},{fy - cfg['height'] * 1.5:.6f},{z_val:.6f}"
-                                )
-                                scr_lines.append(f"  {text_content}")
-                                scr_lines.append("")
 
                                 line_spacing_offset += cfg["height"] * 1.3
-
-                            # 添加 SPHERE 符号
-                            scr_lines.append(
-                                f"SPHERE {x_val:.7f},{y_val:.7f},{z_val:.7f} D"
-                                f" {pdsize_val * 0.01:.5f}"
-                            )
 
                         except:
                             continue
