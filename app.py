@@ -154,8 +154,9 @@ if uploaded_raw is not None:
 
         col_cfg1, _ = st.columns([1, 2])
         with col_cfg1:
+            # 默认值设定为 1
             num_stations = st.number_input(
-                "Number of Stations", min_value=1, max_value=10, value=4, step=1
+                "Number of Stations", min_value=1, max_value=10, value=1, step=1
             )
 
         default_ranges_data = []
@@ -749,7 +750,6 @@ if uploaded_raw is not None:
                                 scr_lines.append(
                                     f"-MTEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
                                 )
-                                # 第二个点给出一个宽度/对角延伸（例如向右向下偏移一点或直接使用相同点）
                                 scr_lines.append(
                                     f"{fx + cfg['height'] * 10:.6f},{fy - cfg['height'] * 1.5:.6f},{z_val:.6f}"
                                 )
