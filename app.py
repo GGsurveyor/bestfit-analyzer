@@ -1,4 +1,5 @@
 import os
+import tempfile
 import ezdxf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -458,25 +459,33 @@ if uploaded_raw is not None:
                     )
 
                 if "df_final_result" in st.session_state:
-                    st.markdown("#### 📋 Final Result Preview")
-                    st.dataframe(
-                        st.session_state["df_final_result"].style.format(
-                            "{:.4f}"
-                        )
-                    )
+                    st.markdown("---")
+                    # 将 Final Result Preview 和 Final Deviation Analysis 改为左右横向显示
+                    col_res1, col_res2 = st.columns(2)
 
-                    if "err_final" in st.session_state:
-                        st.markdown(
-                            "📊 **Final Deviation Analysis (Design Points):**"
-                        )
+                    with col_res1:
+                        st.markdown("#### 📋 Final Result Preview")
                         st.dataframe(
-                            st.session_state["err_final"].style.format({
-                                "Delta E": "{:.4f}",
-                                "Delta N": "{:.4f}",
-                                "Delta El": "{:.4f}",
-                                "Total_Error": "{:.4f}",
-                            })
+                            st.session_state["df_final_result"].style.format(
+                                "{:.4f}"
+                            ),
+                            use_container_width=True,
                         )
+
+                    with col_res2:
+                        st.markdown("#### 📊 Final Deviation Analysis")
+                        if "err_final" in st.session_state:
+                            st.dataframe(
+                                st.session_state["err_final"].style.format({
+                                    "Delta E": "{:.4f}",
+                                    "Delta N": "{:.4f}",
+                                    "Delta El": "{:.4f}",
+                                    "Total_Error": "{:.4f}",
+                                }),
+                                use_container_width=True,
+                            )
+                        else:
+                            st.info("No deviation data available (Design points not used or not fitted).")
 
                     final_csv = (
                         st.session_state["df_final_result"]
@@ -773,8 +782,6 @@ if uploaded_raw is not None:
 
                         except:
                             continue
-
-                    import tempfile
 
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=".dxf"
