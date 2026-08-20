@@ -106,7 +106,7 @@ class PDFReport(FPDF):
         )
 
 
-def generate_pdf_report(df_final, df_err):
+def generate_pdf_report(df_final, df_err, include_deviation=True):
     pdf = PDFReport()
     pdf.add_page()
     pdf.set_font("helvetica", "", 10)
@@ -144,8 +144,8 @@ def generate_pdf_report(df_final, df_err):
 
     pdf.ln(6)
 
-    # Deviation Analysis Table (if exists)
-    if df_err is not None and not df_err.empty:
+    # Deviation Analysis Table (Conditional check)
+    if include_deviation and df_err is not None and not df_err.empty:
         pdf.set_font("helvetica", "B", 12)
         pdf.cell(0, 8, "3. Deviation Analysis Report", 0, 1, "L")
         pdf.set_font("helvetica", "B", 9)
@@ -552,7 +552,7 @@ if uploaded_raw is not None:
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
                                 })
-                                .map(  # 修复为 map 兼容新版 Pandas
+                                .map(
                                     highlight_excess_error,
                                     subset=[
                                         "Delta E",
@@ -701,7 +701,7 @@ if uploaded_raw is not None:
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
                                 })
-                                .map(  # 修复为 map 兼容新版 Pandas
+                                .map(
                                     highlight_excess_error,
                                     subset=[
                                         "Delta E",
@@ -1074,9 +1074,18 @@ if uploaded_raw is not None:
 
                     st.markdown("---")
                     st.subheader("📄 Comprehensive PDF Report Export")
+                    
+                    # 增加 PDF 报告内容选项勾选框
+                    include_dev_in_pdf = st.checkbox(
+                        "Include '3. Deviation Analysis Report' in PDF",
+                        value=True,
+                        key="include_dev_pdf_checkbox"
+                    )
+
                     pdf_bytes = generate_pdf_report(
                         st.session_state["df_final_result"],
                         st.session_state.get("err_final", pd.DataFrame()),
+                        include_deviation=include_dev_in_pdf
                     )
                     st.download_button(
                         label="📥 Download Comprehensive PDF Report",
