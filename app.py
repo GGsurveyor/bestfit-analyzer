@@ -95,63 +95,59 @@ class PDFReport(FPDF):
 
 
 def generate_pdf_report(df_final, df_err):
-        pdf = PDFReport()
-        pdf.add_page()
-        pdf.set_font("helvetica", "", 10)
+    pdf = PDFReport()
+    pdf.add_page()
+    pdf.set_font("helvetica", "", 10)
 
-        # Summary Section
-        pdf.set_font("helvetica", "B", 12)
-        pdf.cell(0, 8, "1. Executive Summary", 0, 1, "L")
-        pdf.set_font("helvetica", "", 10)
-        pdf.cell(
-            0,
-            6,
-            f"Total Processed Points in Final Result: {len(df_final)}",
-            0,
-            1,
-            "L",
-        )
-        pdf.ln(4)
+    # Summary Section
+    pdf.set_font("helvetica", "B", 12)
+    pdf.cell(0, 8, "1. Executive Summary", 0, 1, "L")
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(
+        0, 6, f"Total Processed Points in Final Result: {len(df_final)}", 0, 1, "L"
+    )
+    pdf.ln(4)
 
-        # Final Results Table
+    # Final Results Table
+    pdf.set_font("helvetica", "B", 12)
+    pdf.cell(0, 8, "2. Final Coordinates Results", 0, 1, "L")
+    pdf.set_font("helvetica", "B", 9)
+    pdf.set_fill_color(220, 220, 220)
+    pdf.cell(50, 7, "Point ID", 1, 0, "C", True)
+    pdf.cell(45, 7, "X / E", 1, 0, "C", True)
+    pdf.cell(45, 7, "Y / N", 1, 0, "C", True)
+    pdf.cell(45, 7, "Z / EL", 1, 1, "C", True)
+
+    pdf.set_font("helvetica", "", 9)
+    for idx, row in df_final.iterrows():
+        pdf.cell(50, 6, str(idx), 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['X']):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Y']):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Z']):.4f}", 1, 1, "C")
+
+    pdf.ln(6)
+
+    # Deviation Analysis Table (if exists)
+    if df_err is not None and not df_err.empty:
         pdf.set_font("helvetica", "B", 12)
-        pdf.cell(0, 8, "2. Final Coordinates Results", 0, 1, "L")
+        pdf.cell(0, 8, "3. Deviation Analysis Report", 0, 1, "L")
         pdf.set_font("helvetica", "B", 9)
-        pdf.set_fill_color(220, 220, 220)
-        pdf.cell(50, 7, "Point ID", 1, 0, "C", True)
-        pdf.cell(45, 7, "X / E", 1, 0, "C", True)
-        pdf.cell(45, 7, "Y / N", 1, 0, "C", True)
-        pdf.cell(45, 7, "Z / EL", 1, 1, "C", True)
+        pdf.cell(40, 7, "Point ID", 1, 0, "C", True)
+        pdf.cell(35, 7, "Delta E", 1, 0, "C", True)
+        pdf.cell(35, 7, "Delta N", 1, 0, "C", True)
+        pdf.cell(35, 7, "Delta El", 1, 0, "C", True)
+        pdf.cell(40, 7, "Total Error", 1, 1, "C", True)
 
         pdf.set_font("helvetica", "", 9)
-        for idx, row in df_final.iterrows():
-            pdf.cell(50, 6, str(idx), 1, 0, "C")
-            pdf.cell(45, 6, f"{float(row['X']):.4f}", 1, 0, "C")
-            pdf.cell(45, 6, f"{float(row['Y']):.4f}", 1, 0, "C")
-            pdf.cell(45, 6, f"{float(row['Z']):.4f}", 1, 1, "C")
+        for idx, row in df_err.iterrows():
+            pdf.cell(40, 6, str(idx), 1, 0, "C")
+            pdf.cell(35, 6, f"{float(row['Delta E']):.4f}", 1, 0, "C")
+            pdf.cell(35, 6, f"{float(row['Delta N']):.4f}", 1, 0, "C")
+            pdf.cell(35, 6, f"{float(row['Delta El']):.4f}", 1, 0, "C")
+            pdf.cell(40, 6, f"{float(row['Total_Error']):.4f}", 1, 1, "C")
 
-        pdf.ln(6)
-
-        # Deviation Analysis Table (if exists)
-        if df_err is not None and not df_err.empty:
-            pdf.set_font("helvetica", "B", 12)
-            pdf.cell(0, 8, "3. Deviation Analysis Report", 0, 1, "L")
-            pdf.set_font("helvetica", "B", 9)
-            pdf.cell(40, 7, "Point ID", 1, 0, "C", True)
-            pdf.cell(35, 7, "Delta E", 1, 0, "C", True)
-            pdf.cell(35, 7, "Delta N", 1, 0, "C", True)
-            pdf.cell(35, 7, "Delta El", 1, 0, "C", True)
-            pdf.cell(40, 7, "Total Error", 1, 1, "C", True)
-
-            pdf.set_font("helvetica", "", 9)
-            for idx, row in df_err.iterrows():
-                pdf.cell(40, 6, str(idx), 1, 0, "C")
-                pdf.cell(35, 6, f"{float(row['Delta E']):.4f}", 1, 0, "C")
-                pdf.cell(35, 6, f"{float(row['Delta N']):.4f}", 1, 0, "C")
-                pdf.cell(35, 6, f"{float(row['Delta El']):.4f}", 1, 0, "C")
-                pdf.cell(40, 6, f"{float(row['Total_Error']):.4f}", 1, 1, "C")
-
-        return pdf.output()
+    # 修复返回格式，确保为标准 bytes
+    return bytes(pdf.output())
 
 
 # CAD Color Mapping (Plotly friendly color names)
