@@ -85,11 +85,11 @@ class PDFReport(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font("helvetica", "I", 8)
-        current_year = datetime.now().strftime("%Y")
+        current_date_full = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.cell(
             0,
             10,
-            f"Page {self.page_no()} | Report Date: {current_year}",
+            f"Page {self.page_no()} | Report Date & Time: {current_date_full}",
             0,
             0,
             "C",
