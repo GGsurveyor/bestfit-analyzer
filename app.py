@@ -73,7 +73,7 @@ st.set_page_config(
 )
 
 st.title(
-    "🏗️ Multi-Station BestFit Pipeline & CAD DXF/SCR Converter - Made by Ng"
+    "🏗️ 2D/3D Multi-Station BestFit & CAD DXF/SCR Converter - Made by Ng"
     " Yit Fung"
 )
 st.markdown(
