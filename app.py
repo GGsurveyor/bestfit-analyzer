@@ -627,7 +627,7 @@ if uploaded_raw is not None:
                             "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
                         )
 
-                    # Live Preview Window with Plotly (Mouse Roller Zoom & Drag Support)
+                    # Live Preview Window with Plotly (Mouse Roller Zoom & Pan + Pure Black Background)
                     st.markdown("---")
                     st.markdown(
                         "### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom"
@@ -713,22 +713,23 @@ if uploaded_raw is not None:
                             except:
                                 continue
 
-                        # 图表样式与交互设置（开启等比例及滚轮缩放）
+                        # 纯黑背景以及图表布局样式设置
                         fig.update_layout(
-                            template="plotly_dark",
+                            paper_bgcolor="black",
+                            plot_bgcolor="black",
                             xaxis_title="X Coordinate",
                             yaxis_title="Y Coordinate",
                             xaxis=dict(
                                 showgrid=True,
-                                gridcolor="rgba(128,128,128,0.2)",
+                                gridcolor="rgba(50,50,50,0.8)",
                                 zeroline=True,
-                                zerolinecolor="rgba(128,128,128,0.5)",
+                                zerolinecolor="rgba(100,100,100,0.8)",
                             ),
                             yaxis=dict(
                                 showgrid=True,
-                                gridcolor="rgba(128,128,128,0.2)",
+                                gridcolor="rgba(50,50,50,0.8)",
                                 zeroline=True,
-                                zerolinecolor="rgba(128,128,128,0.5)",
+                                zerolinecolor="rgba(100,100,100,0.8)",
                                 scaleanchor="x",
                                 scaleratio=1,
                             ),
