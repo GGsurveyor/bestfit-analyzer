@@ -101,10 +101,12 @@ if uploaded_raw is not None:
         if "df_design_edited" not in st.session_state:
             if uploaded_design is not None:
                 df_d_init = pd.read_csv(
-                    uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
+                    uploaded_design,
+                    header=None,
+                    names=["Point", "X/E", "Y/N", "Z/EL"],
                 )
             else:
-                df_d_init = pd.DataFrame(columns=["Point", "X", "Y", "Z"])
+                df_d_init = pd.DataFrame(columns=["Point", "X/E", "Y/N", "Z/EL"])
             df_d_init.index = range(1, len(df_d_init) + 1)
             st.session_state["df_design_edited"] = df_d_init
 
@@ -112,29 +114,35 @@ if uploaded_raw is not None:
         if "df_ctrl_edited" not in st.session_state:
             if uploaded_ctrl is not None:
                 df_c_init = pd.read_csv(
-                    uploaded_ctrl, header=None, names=["Point", "X", "Y", "Z"]
+                    uploaded_ctrl,
+                    header=None,
+                    names=["Point", "X/E", "Y/N", "Z/EL"],
                 )
             else:
-                df_c_init = pd.DataFrame(columns=["Point", "X", "Y", "Z"])
+                df_c_init = pd.DataFrame(columns=["Point", "X/E", "Y/N", "Z/EL"])
             df_c_init.index = range(1, len(df_c_init) + 1)
             st.session_state["df_ctrl_edited"] = df_c_init
 
         # --- 初始化 Raw Data 编辑器状态 ---
         if "df_raw_edited" not in st.session_state:
             df_r_init = pd.read_csv(
-                uploaded_raw, header=None, names=["Point", "X", "Y", "Z"]
+                uploaded_raw, header=None, names=["Point", "X/E", "Y/N", "Z/EL"]
             )
             df_r_init.index = range(1, len(df_r_init) + 1)
             st.session_state["df_raw_edited"] = df_r_init
 
-        # 统一的表格列宽配置
+        # 统一的表格列宽与字段配置 (X/E, Y/N, Z/EL)
         unified_column_config = {
-            "Point": st.column_config.TextColumn(
-                "Point", width="small"
+            "Point": st.column_config.TextColumn("Point", width="small"),
+            "X/E": st.column_config.NumberColumn(
+                "X/E", format="%.4f", width="small"
             ),
-            "X": st.column_config.NumberColumn("X", format="%.4f", width="small"),
-            "Y": st.column_config.NumberColumn("Y", format="%.4f", width="small"),
-            "Z": st.column_config.NumberColumn("Z", format="%.4f", width="small"),
+            "Y/N": st.column_config.NumberColumn(
+                "Y/N", format="%.4f", width="small"
+            ),
+            "Z/EL": st.column_config.NumberColumn(
+                "Z/EL", format="%.4f", width="small"
+            ),
         }
 
         # --- 第一排：Design Points Editor & Control Points Editor 横向显示 ---
@@ -178,7 +186,8 @@ if uploaded_raw is not None:
             if not temp_d.empty:
                 temp_d["Point"] = temp_d["Point"].astype(str).str.strip()
                 temp_d.set_index("Point", inplace=True)
-                df_design = temp_d[["X", "Y", "Z"]]
+                df_design = temp_d[["X/E", "Y/N", "Z/EL"]].copy()
+                df_design.columns = ["X", "Y", "Z"]
 
         df_ctrl = None
         if not st.session_state["df_ctrl_edited"].empty:
@@ -188,7 +197,8 @@ if uploaded_raw is not None:
             if not temp_c.empty:
                 temp_c["Point"] = temp_c["Point"].astype(str).str.strip()
                 temp_c.set_index("Point", inplace=True)
-                df_ctrl = temp_c[["X", "Y", "Z"]]
+                df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].copy()
+                df_ctrl.columns = ["X", "Y", "Z"]
 
         df_raw = st.session_state["df_raw_edited"].copy()
         df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
@@ -289,10 +299,15 @@ if uploaded_raw is not None:
 
                     stn_raw_df = df_raw.iloc[s_start:s_end].copy()
                     stn_indexed = stn_raw_df.set_index("Point")
+                    # 准备纯数值计算用的内部结构 (将 X/E, Y/N, Z/EL 映射为标准 X, Y, Z 计算)
+                    stn_calc_indexed = stn_indexed[
+                        ["X/E", "Y/N", "Z/EL"]
+                    ].copy()
+                    stn_calc_indexed.columns = ["X", "Y", "Z"]
 
                     if df_ctrl is not None and not df_ctrl.empty:
                         common_ctrl = df_ctrl.index.intersection(
-                            stn_indexed.index
+                            stn_calc_indexed.index
                         )
                         col_m1, col_m2 = st.columns(2)
                         fit_method_stn = col_m1.selectbox(
@@ -319,7 +334,7 @@ if uploaded_raw is not None:
                                 f"Execute {fit_method_stn} for {s_name}",
                                 key=f"fit_btn_{s_name}",
                             ):
-                                m_pts = stn_indexed.loc[
+                                m_pts = stn_calc_indexed.loc[
                                     active_ctrl_pts, ["X", "Y", "Z"]
                                 ].values
                                 d_pts = df_ctrl.loc[
@@ -333,13 +348,16 @@ if uploaded_raw is not None:
 
                                 transformed_pts = (
                                     np.dot(
-                                        stn_indexed[["X", "Y", "Z"]].values, R.T
+                                        stn_calc_indexed[
+                                            ["X", "Y", "Z"]
+                                        ].values,
+                                        R.T,
                                     )
                                     + T
                                 )
                                 df_fitted = pd.DataFrame(
                                     transformed_pts,
-                                    index=stn_indexed.index,
+                                    index=stn_calc_indexed.index,
                                     columns=["X", "Y", "Z"],
                                 )
                                 st.session_state["station_fitted_dfs"][
@@ -366,7 +384,7 @@ if uploaded_raw is not None:
                     else:
                         if s_name not in st.session_state["station_fitted_dfs"]:
                             st.session_state["station_fitted_dfs"][s_name] = (
-                                stn_indexed[["X", "Y", "Z"]]
+                                stn_calc_indexed[["X", "Y", "Z"]]
                             )
                         st.info(
                             "ℹ️ Control Points not provided. Using raw data"
@@ -380,9 +398,9 @@ if uploaded_raw is not None:
                         st.markdown(f"**📂 Raw Data ({s_name})**")
                         st.dataframe(
                             stn_raw_df.style.format({
-                                "X": "{:.4f}",
-                                "Y": "{:.4f}",
-                                "Z": "{:.4f}",
+                                "X/E": "{:.4f}",
+                                "Y/N": "{:.4f}",
+                                "Z/EL": "{:.4f}",
                             }),
                             use_container_width=True,
                         )
