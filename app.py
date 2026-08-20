@@ -127,6 +127,16 @@ if uploaded_raw is not None:
             df_r_init.index = range(1, len(df_r_init) + 1)
             st.session_state["df_raw_edited"] = df_r_init
 
+        # 统一的表格列宽配置
+        unified_column_config = {
+            "Point": st.column_config.TextColumn(
+                "Point", width="small"
+            ),
+            "X": st.column_config.NumberColumn("X", format="%.4f", width="small"),
+            "Y": st.column_config.NumberColumn("Y", format="%.4f", width="small"),
+            "Z": st.column_config.NumberColumn("Z", format="%.4f", width="small"),
+        }
+
         # --- 第一排：Design Points Editor & Control Points Editor 横向显示 ---
         st.markdown("---")
         col_row1_1, col_row1_2 = st.columns(2)
@@ -140,12 +150,7 @@ if uploaded_raw is not None:
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=False,
-                column_config={
-                    "Point": st.column_config.TextColumn("Point", width="medium"),
-                    "X": st.column_config.NumberColumn("X", format="%.4f"),
-                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
-                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
-                },
+                column_config=unified_column_config,
                 key="design_data_editor",
             )
             st.session_state["df_design_edited"] = edited_design_df
@@ -159,12 +164,7 @@ if uploaded_raw is not None:
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=False,
-                column_config={
-                    "Point": st.column_config.TextColumn("Point", width="medium"),
-                    "X": st.column_config.NumberColumn("X", format="%.4f"),
-                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
-                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
-                },
+                column_config=unified_column_config,
                 key="ctrl_data_editor",
             )
             st.session_state["df_ctrl_edited"] = edited_ctrl_df
@@ -207,12 +207,7 @@ if uploaded_raw is not None:
                 num_rows="dynamic",
                 use_container_width=True,
                 hide_index=False,
-                column_config={
-                    "Point": st.column_config.TextColumn("Point", width="medium"),
-                    "X": st.column_config.NumberColumn("X", format="%.4f"),
-                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
-                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
-                },
+                column_config=unified_column_config,
                 key="raw_data_editor",
             )
             st.session_state["df_raw_edited"] = edited_raw_df
