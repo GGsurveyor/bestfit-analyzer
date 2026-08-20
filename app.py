@@ -58,7 +58,7 @@ class BestFitEngine:
         return err
 
 
-# 样式高亮函数：数值绝对值超过 0.002 时显示红色
+# 样式高亮函数：数值绝对值超过 0.002 时显示红色粗体
 def highlight_excess_error(val):
     try:
         if abs(float(val)) > 0.002:
@@ -552,7 +552,7 @@ if uploaded_raw is not None:
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
                                 })
-                                .applymap(
+                                .map(  # 修复为 map 兼容新版 Pandas
                                     highlight_excess_error,
                                     subset=[
                                         "Delta E",
@@ -701,7 +701,7 @@ if uploaded_raw is not None:
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
                                 })
-                                .applymap(
+                                .map(  # 修复为 map 兼容新版 Pandas
                                     highlight_excess_error,
                                     subset=[
                                         "Delta E",
