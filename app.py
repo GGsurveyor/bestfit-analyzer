@@ -44,7 +44,6 @@ class BestFitEngine:
 
     @staticmethod
     def calculate_error(df_after, df_target):
-        # 计算残差: After - Target (Design / Control)
         err = df_after.sub(df_target, fill_value=0)
         err.columns = ["Delta E", "Delta N", "Delta El"]
         err["Total_Error"] = np.sqrt(
@@ -59,11 +58,11 @@ st.set_page_config(
 
 st.title(
     "🏗️ Complete Pipeline: Raw Data -> Station Split -> 2D/3D Fit -> Combined"
-    " Fit with Deviations"
+    " Fit"
 )
 st.markdown(
     "Upload Design points, Control points, and Raw Data. Complete the entire"
-    " workflow in one interface without external Excel steps."
+    " workflow and download intermediate/final results in one interface."
 )
 
 # Sidebar Uploads
@@ -185,10 +184,11 @@ if (
                 f" between 1 and {total_rows})."
             )
         else:
-            # --- Step 2: Individual Station BestFit with Control Points & Deviations ---
+            # --- Step 2: Individual Station BestFit with Control Points & Deviations & Individual Download ---
             st.markdown("---")
             st.subheader(
-                "🎯 Step 2: Individual Station Fit & Deviation Analysis"
+                "🎯 Step 2: Individual Station Fit, Deviation Analysis &"
+                " Download"
             )
 
             if "station_fitted_dfs" not in st.session_state:
@@ -310,6 +310,21 @@ if (
                                 })
                             )
 
+                        # Individual Station Download Button
+                        stn_csv_data = (
+                            st.session_state["station_fitted_dfs"][s_name]
+                            .reset_index()
+                            .to_csv(index=False, header=False, float_format="%.4f")
+                        )
+                        safe_s_name = s_name.replace(" ", "-").lower()
+                        st.download_button(
+                            label=f"📥 Download [{s_name}_after.CSV]",
+                            data=stn_csv_data,
+                            file_name=f"{safe_s_name}_after.CSV",
+                            mime="text/csv",
+                            key=f"dl_btn_{s_name}",
+                        )
+
             # --- Step 3: Combine All Stations & Final BestFit with Design Points ---
             st.markdown("---")
             st.subheader(
@@ -377,7 +392,6 @@ if (
                         )
                         st.session_state["df_final_result"] = df_final_result
 
-                        # Calculate final errors
                         df_final_active = df_final_result.loc[active_design_pts]
                         err_final = BestFitEngine.calculate_error(
                             df_final_active, df_design.loc[active_design_pts]
