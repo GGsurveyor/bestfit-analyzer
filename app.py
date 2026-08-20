@@ -1,9 +1,9 @@
 import os
 import tempfile
 import ezdxf
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 
@@ -56,7 +56,7 @@ class BestFitEngine:
         return err
 
 
-# CAD Color Mapping
+# CAD Color Mapping (Plotly friendly color names)
 CAD_COLORS = {
     "White (Default)": ("white", 7),
     "Red": ("red", 1),
@@ -69,12 +69,14 @@ CAD_COLORS = {
 }
 
 st.set_page_config(
-    page_title="BestFit & DXF/SCR Converter Pro", page_icon="🏗️", layout="wide"
+    page_title="2D/3D Multi-Station BestFit & DXF/SCR Converter Pro",
+    page_icon="🏗️",
+    layout="wide",
 )
 
 st.title(
-    "🏗️ 2D/3D Multi-Station BestFit & CAD DXF/SCR Converter - Made by Ng"
-    " Yit Fung"
+    "🏗️ 2D/3D Multi-Station BestFit & CAD DXF/SCR Converter - Made by Ng Yit"
+    " Fung"
 )
 st.markdown(
     "Complete Raw Data editing, Station splitting, BestFit analysis, and"
@@ -625,11 +627,13 @@ if uploaded_raw is not None:
                             "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
                         )
 
-                    # Live Preview Window with Zoom feature
+                    # Live Preview Window with Plotly (Mouse Roller Zoom & Drag Support)
                     st.markdown("---")
-                    st.markdown("### 🖥️ Live Layout Preview")
+                    st.markdown(
+                        "### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom"
+                        " & Pan)"
+                    )
 
-                    # 计算有效数据的边界范围，用于实现缩放
                     valid_xs, valid_ys = [], []
                     for _, row in dxf_df.iterrows():
                         try:
@@ -639,32 +643,26 @@ if uploaded_raw is not None:
                             continue
 
                     if valid_xs and valid_ys:
-                        min_x, max_x = min(valid_xs), max(valid_xs)
-                        min_y, max_y = min(valid_ys), max(valid_ys)
-                        range_x = max(max_x - min_x, 1.0)
-                        range_y = max(max_y - min_y, 1.0)
-                        center_x = (min_x + max_x) / 2
-                        center_y = (min_y + max_y) / 2
+                        fig = go.Figure()
 
-                        # 增加 Zoom 级别调节滑动条 (1.0 为默认全景，数值越小放大越多)
-                        zoom_level = st.slider(
-                            "🔍 Zoom Level (Scale Factor)",
-                            min_value=0.1,
-                            max_value=3.0,
-                            value=1.0,
-                            step=0.05,
-                            key="live_preview_zoom",
-                            help=(
-                                "Adjust to zoom in or zoom out the preview"
-                                " window."
-                            ),
+                        # 绘制点符号
+                        fig.add_trace(
+                            go.Scatter(
+                                x=dxf_df["X"],
+                                y=dxf_df["Y"],
+                                mode="markers",
+                                marker=dict(
+                                    color=CAD_COLORS[point_color][0],
+                                    size=max(6, pdsize_val * 6),
+                                    symbol="circle",
+                                ),
+                                text=dxf_df["ID"],
+                                name="Points",
+                                hoverinfo="text+x+y",
+                            )
                         )
 
-                        fig, ax = plt.subplots(figsize=(10, 8))
-                        fig.patch.set_facecolor("#0e1117")
-                        ax.set_facecolor("#0e1117")
-
-                        has_valid_data = False
+                        # 绘制标签文本
                         for idx, row in dxf_df.iterrows():
                             try:
                                 x_val, y_val, z_val = (
@@ -674,15 +672,6 @@ if uploaded_raw is not None:
                                 )
                                 id_val = str(row["ID"])
                                 fmt = f"{{:.{decimal_places}f}}"
-                                has_valid_data = True
-
-                                ax.scatter(
-                                    [x_val],
-                                    [y_val],
-                                    color=CAD_COLORS[point_color][0],
-                                    s=pdsize_val * 20,
-                                    marker="o",
-                                )
 
                                 line_spacing_offset = 0.0
                                 for field in display_options:
@@ -707,52 +696,52 @@ if uploaded_raw is not None:
                                         + cfg["offset_y"]
                                         - line_spacing_offset
                                     )
-                                    ax.text(
-                                        fx,
-                                        fy,
-                                        text_content,
-                                        color=cfg["color_name"],
-                                        fontsize=max(
-                                            8, cfg["height"] * 6
+
+                                    fig.add_annotation(
+                                        x=fx,
+                                        y=fy,
+                                        text=text_content,
+                                        showarrow=False,
+                                        font=dict(
+                                            color=cfg["color_name"],
+                                            size=max(10, cfg["height"] * 9),
                                         ),
+                                        xanchor="left",
+                                        yanchor="bottom",
                                     )
                                     line_spacing_offset += cfg["height"] * 0.8
                             except:
                                 continue
 
-                        if has_valid_data:
-                            # 根据 Zoom 级别动态设置显示边界范围
-                            span_x = (range_x * zoom_level) / 2
-                            span_y = (range_y * zoom_level) / 2
-                            ax.set_xlim(
-                                center_x - span_x * 1.1, center_x + span_x * 1.1
-                            )
-                            ax.set_ylim(
-                                center_y - span_y * 1.1, center_y + span_y * 1.1
-                            )
+                        # 图表样式与交互设置（开启等比例及滚轮缩放）
+                        fig.update_layout(
+                            template="plotly_dark",
+                            xaxis_title="X Coordinate",
+                            yaxis_title="Y Coordinate",
+                            xaxis=dict(
+                                showgrid=True,
+                                gridcolor="rgba(128,128,128,0.2)",
+                                zeroline=True,
+                                zerolinecolor="rgba(128,128,128,0.5)",
+                            ),
+                            yaxis=dict(
+                                showgrid=True,
+                                gridcolor="rgba(128,128,128,0.2)",
+                                zeroline=True,
+                                zerolinecolor="rgba(128,128,128,0.5)",
+                                scaleanchor="x",
+                                scaleratio=1,
+                            ),
+                            margin=dict(l=20, r=20, t=20, b=20),
+                            height=700,
+                            hovermode="closest",
+                        )
 
-                            ax.axhline(
-                                0, color="gray", linewidth=0.5, linestyle="--"
-                            )
-                            ax.axvline(
-                                0, color="gray", linewidth=0.5, linestyle="--"
-                            )
-                            ax.tick_params(colors="white")
-                            ax.xaxis.label.set_color("white")
-                            ax.yaxis.label.set_color("white")
-                            for spine in ax.spines.values():
-                                spine.set_edgecolor("gray")
-                            ax.set_xlabel("X Coordinate")
-                            ax.set_ylabel("Y Coordinate")
-                            ax.grid(
-                                True, linestyle=":", alpha=0.3, color="gray"
-                            )
-                            ax.set_aspect("equal", adjustable="box")
-                            st.pyplot(fig)
-                        else:
-                            st.warning(
-                                "No valid coordinate data available to render."
-                            )
+                        st.plotly_chart(
+                            fig,
+                            use_container_width=True,
+                            config={"scrollZoom": True},
+                        )
                     else:
                         st.warning("No coordinate values detected.")
 
