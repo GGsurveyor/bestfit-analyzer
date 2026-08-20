@@ -460,7 +460,6 @@ if uploaded_raw is not None:
 
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
-                    # 将 Final Result Preview 和 Final Deviation Analysis 改为左右横向显示
                     col_res1, col_res2 = st.columns(2)
 
                     with col_res1:
@@ -485,7 +484,10 @@ if uploaded_raw is not None:
                                 use_container_width=True,
                             )
                         else:
-                            st.info("No deviation data available (Design points not used or not fitted).")
+                            st.info(
+                                "No deviation data available (Design points not"
+                                " used or not fitted)."
+                            )
 
                     final_csv = (
                         st.session_state["df_final_result"]
@@ -623,85 +625,136 @@ if uploaded_raw is not None:
                             "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
                         )
 
-                    # Live Preview Window
+                    # Live Preview Window with Zoom feature
                     st.markdown("---")
                     st.markdown("### 🖥️ Live Layout Preview")
 
-                    fig, ax = plt.subplots(figsize=(10, 8))
-                    fig.patch.set_facecolor("#0e1117")
-                    ax.set_facecolor("#0e1117")
-
-                    has_valid_data = False
-                    for idx, row in dxf_df.iterrows():
+                    # 计算有效数据的边界范围，用于实现缩放
+                    valid_xs, valid_ys = [], []
+                    for _, row in dxf_df.iterrows():
                         try:
-                            x_val, y_val, z_val = (
-                                float(row["X"]),
-                                float(row["Y"]),
-                                float(row["Z"]),
-                            )
-                            id_val = str(row["ID"])
-                            fmt = f"{{:.{decimal_places}f}}"
-                            has_valid_data = True
-
-                            ax.scatter(
-                                [x_val],
-                                [y_val],
-                                color=CAD_COLORS[point_color][0],
-                                s=pdsize_val * 20,
-                                marker="o",
-                            )
-
-                            line_spacing_offset = 0.0
-                            for field in display_options:
-                                if field not in field_configs:
-                                    continue
-                                cfg = field_configs[field]
-
-                                if field == "ID":
-                                    text_content = id_val
-                                elif field == "X Coordinate":
-                                    text_content = f"X: {fmt.format(x_val)}"
-                                elif field == "Y Coordinate":
-                                    text_content = f"Y: {fmt.format(y_val)}"
-                                else:
-                                    text_content = f"EL: {fmt.format(z_val)}"
-
-                                fx = x_val + cfg["offset_x"]
-                                fy = (
-                                    y_val
-                                    + cfg["offset_y"]
-                                    - line_spacing_offset
-                                )
-                                ax.text(
-                                    fx,
-                                    fy,
-                                    text_content,
-                                    color=cfg["color_name"],
-                                    fontsize=max(
-                                        8, cfg["height"] * 6
-                                    ),
-                                )
-                                line_spacing_offset += cfg["height"] * 0.8
+                            valid_xs.append(float(row["X"]))
+                            valid_ys.append(float(row["Y"]))
                         except:
                             continue
 
-                    if has_valid_data:
-                        ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
-                        ax.axvline(0, color="gray", linewidth=0.5, linestyle="--")
-                        ax.tick_params(colors="white")
-                        ax.xaxis.label.set_color("white")
-                        ax.yaxis.label.set_color("white")
-                        for spine in ax.spines.values():
-                            spine.set_edgecolor("gray")
-                        ax.set_xlabel("X Coordinate")
-                        ax.set_ylabel("Y Coordinate")
-                        ax.grid(True, linestyle=":", alpha=0.3, color="gray")
-                        ax.set_aspect("equal", adjustable="datalim")
-                        st.pyplot(fig)
-                    else:
-                        st.warning(
-                            "No valid coordinate data available to render."
+                    if valid_xs and valid_ys:
+                        min_x, max_x = min(valid_xs), max(valid_xs)
+                        min_y, max_y = min(valid_ys), max(valid_ys)
+                        range_x = max(max_x - min_x, 1.0)
+                        range_y = max(max_y - min_y, 1.0)
+                        center_x = (min_x + max_x) / 2
+                        center_y = (min_y + max_y) / 2
+
+                        # 增加 Zoom 级别调节滑动条 (1.0 为默认全景，数值越小放大越多)
+                        zoom_level = st.slider(
+                            "🔍 Zoom Level (Scale Factor)",
+                            min_value=0.1,
+                            max_value=3.0,
+                            value=1.0,
+                            step=0.05,
+                            key="live_preview_zoom",
+                            help=(
+                                "Adjust to zoom in or zoom out the preview"
+                                " window."
+                            ),
                         )
+
+                        fig, ax = plt.subplots(figsize=(10, 8))
+                        fig.patch.set_facecolor("#0e1117")
+                        ax.set_facecolor("#0e1117")
+
+                        has_valid_data = False
+                        for idx, row in dxf_df.iterrows():
+                            try:
+                                x_val, y_val, z_val = (
+                                    float(row["X"]),
+                                    float(row["Y"]),
+                                    float(row["Z"]),
+                                )
+                                id_val = str(row["ID"])
+                                fmt = f"{{:.{decimal_places}f}}"
+                                has_valid_data = True
+
+                                ax.scatter(
+                                    [x_val],
+                                    [y_val],
+                                    color=CAD_COLORS[point_color][0],
+                                    s=pdsize_val * 20,
+                                    marker="o",
+                                )
+
+                                line_spacing_offset = 0.0
+                                for field in display_options:
+                                    if field not in field_configs:
+                                        continue
+                                    cfg = field_configs[field]
+
+                                    if field == "ID":
+                                        text_content = id_val
+                                    elif field == "X Coordinate":
+                                        text_content = f"X: {fmt.format(x_val)}"
+                                    elif field == "Y Coordinate":
+                                        text_content = f"Y: {fmt.format(y_val)}"
+                                    else:
+                                        text_content = (
+                                            f"EL: {fmt.format(z_val)}"
+                                        )
+
+                                    fx = x_val + cfg["offset_x"]
+                                    fy = (
+                                        y_val
+                                        + cfg["offset_y"]
+                                        - line_spacing_offset
+                                    )
+                                    ax.text(
+                                        fx,
+                                        fy,
+                                        text_content,
+                                        color=cfg["color_name"],
+                                        fontsize=max(
+                                            8, cfg["height"] * 6
+                                        ),
+                                    )
+                                    line_spacing_offset += cfg["height"] * 0.8
+                            except:
+                                continue
+
+                        if has_valid_data:
+                            # 根据 Zoom 级别动态设置显示边界范围
+                            span_x = (range_x * zoom_level) / 2
+                            span_y = (range_y * zoom_level) / 2
+                            ax.set_xlim(
+                                center_x - span_x * 1.1, center_x + span_x * 1.1
+                            )
+                            ax.set_ylim(
+                                center_y - span_y * 1.1, center_y + span_y * 1.1
+                            )
+
+                            ax.axhline(
+                                0, color="gray", linewidth=0.5, linestyle="--"
+                            )
+                            ax.axvline(
+                                0, color="gray", linewidth=0.5, linestyle="--"
+                            )
+                            ax.tick_params(colors="white")
+                            ax.xaxis.label.set_color("white")
+                            ax.yaxis.label.set_color("white")
+                            for spine in ax.spines.values():
+                                spine.set_edgecolor("gray")
+                            ax.set_xlabel("X Coordinate")
+                            ax.set_ylabel("Y Coordinate")
+                            ax.grid(
+                                True, linestyle=":", alpha=0.3, color="gray"
+                            )
+                            ax.set_aspect("equal", adjustable="box")
+                            st.pyplot(fig)
+                        else:
+                            st.warning(
+                                "No valid coordinate data available to render."
+                            )
+                    else:
+                        st.warning("No coordinate values detected.")
 
                     # --- Generate DXF & SCR Files ---
                     doc = ezdxf.new(dxfversion="R2010")
@@ -724,7 +777,6 @@ if uploaded_raw is not None:
                             id_val = str(row["ID"])
                             fmt = f"{{:.{decimal_places}f}}"
 
-                            # 1. DXF 实体生成
                             msp.add_point(
                                 (x_val, y_val, z_val),
                                 dxfattribs={
@@ -732,7 +784,6 @@ if uploaded_raw is not None:
                                 },
                             )
 
-                            # 2. SCR 脚本：使用分行的 SPHERE 3D 指令
                             scr_lines.append("SPHERE")
                             scr_lines.append(
                                 f"{x_val:.7f},{y_val:.7f},{z_val:.7f}"
@@ -762,7 +813,6 @@ if uploaded_raw is not None:
                                     - line_spacing_offset
                                 )
 
-                                # DXF 文本写入
                                 msp.add_text(
                                     text_content,
                                     dxfattribs={
@@ -772,7 +822,6 @@ if uploaded_raw is not None:
                                     },
                                 )
 
-                                # SCR 脚本：使用稳定的 -TEXT 命令
                                 scr_lines.append(
                                     f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f}"
                                     f" {cfg['height']:.4f} 0 {text_content}"
