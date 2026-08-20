@@ -83,8 +83,8 @@ st.markdown(
     " export to CSV / DXF / SCR formats."
 )
 
-# Sidebar Uploads
-st.sidebar.header("📂 Data Inputs")
+# Sidebar Uploads for CSV files
+st.sidebar.header("📂 Data Uploads")
 uploaded_design = st.sidebar.file_uploader(
     "Upload Design Points CSV (Optional)", type=["csv"], key="design_file"
 )
@@ -97,44 +97,86 @@ uploaded_raw = st.sidebar.file_uploader(
 
 if uploaded_raw is not None:
     try:
-        df_design = None
-        if uploaded_design is not None:
-            df_design = pd.read_csv(
-                uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
-            )
-            df_design["Point"] = df_design["Point"].astype(str).str.strip()
-            df_design.set_index("Point", inplace=True)
+        # --- 初始化 Design Points 编辑器状态 ---
+        if "df_design_edited" not in st.session_state:
+            if uploaded_design is not None:
+                df_d_init = pd.read_csv(
+                    uploaded_design, header=None, names=["Point", "X", "Y", "Z"]
+                )
+            else:
+                df_d_init = pd.DataFrame(columns=["Point", "X", "Y", "Z"])
+            df_d_init.index = range(1, len(df_d_init) + 1)
+            st.session_state["df_design_edited"] = df_d_init
 
-        df_ctrl = None
-        if uploaded_ctrl is not None:
-            df_ctrl = pd.read_csv(
-                uploaded_ctrl, header=None, names=["Point", "X", "Y", "Z"]
-            )
-            df_ctrl["Point"] = df_ctrl["Point"].astype(str).str.strip()
-            df_ctrl.set_index("Point", inplace=True)
+        # --- 初始化 Control Points 编辑器状态 ---
+        if "df_ctrl_edited" not in st.session_state:
+            if uploaded_ctrl is not None:
+                df_c_init = pd.read_csv(
+                    uploaded_ctrl, header=None, names=["Point", "X", "Y", "Z"]
+                )
+            else:
+                df_c_init = pd.DataFrame(columns=["Point", "X", "Y", "Z"])
+            df_c_init.index = range(1, len(df_c_init) + 1)
+            st.session_state["df_ctrl_edited"] = df_c_init
 
-        df_raw_initial = pd.read_csv(
-            uploaded_raw, header=None, names=["Point", "X", "Y", "Z"]
-        )
-
+        # --- 初始化 Raw Data 编辑器状态 ---
         if "df_raw_edited" not in st.session_state:
-            temp_init = df_raw_initial.copy()
-            temp_init.index = range(1, len(temp_init) + 1)
-            st.session_state["df_raw_edited"] = temp_init
+            df_r_init = pd.read_csv(
+                uploaded_raw, header=None, names=["Point", "X", "Y", "Z"]
+            )
+            df_r_init.index = range(1, len(df_r_init) + 1)
+            st.session_state["df_raw_edited"] = df_r_init
 
-        # --- Step 0 & Step 1 横向布局 ---
+        # --- 顶部横向布局：Design Points, Control Points, Raw Data 编辑器 ---
         st.markdown("---")
-        col_main1, col_main2 = st.columns(2)
+        col_top1, col_top2, col_top3 = st.columns(3)
 
-        with col_main1:
-            st.subheader("✏️ Step 0: Raw Data Editor")
-            current_df = st.session_state["df_raw_edited"].copy()
-            current_df.index = range(1, len(current_df) + 1)
-
-            edited_raw_df = st.data_editor(
-                current_df,
+        with col_top1:
+            st.subheader("📐 Design Points Editor")
+            current_design = st.session_state["df_design_edited"].copy()
+            current_design.index = range(1, len(current_design) + 1)
+            edited_design_df = st.data_editor(
+                current_design,
                 num_rows="dynamic",
                 use_container_width=True,
+                hide_index=False,
+                column_config={
+                    "Point": st.column_config.TextColumn("Point", width="medium"),
+                    "X": st.column_config.NumberColumn("X", format="%.4f"),
+                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
+                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
+                },
+                key="design_data_editor",
+            )
+            st.session_state["df_design_edited"] = edited_design_df
+
+        with col_top2:
+            st.subheader("🎯 Control Points Editor")
+            current_ctrl = st.session_state["df_ctrl_edited"].copy()
+            current_ctrl.index = range(1, len(current_ctrl) + 1)
+            edited_ctrl_df = st.data_editor(
+                current_ctrl,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=False,
+                column_config={
+                    "Point": st.column_config.TextColumn("Point", width="medium"),
+                    "X": st.column_config.NumberColumn("X", format="%.4f"),
+                    "Y": st.column_config.NumberColumn("Y", format="%.4f"),
+                    "Z": st.column_config.NumberColumn("Z", format="%.4f"),
+                },
+                key="ctrl_data_editor",
+            )
+            st.session_state["df_ctrl_edited"] = edited_ctrl_df
+
+        with col_top3:
+            st.subheader("✏️ Raw Data Editor")
+            current_raw = st.session_state["df_raw_edited"].copy()
+            current_raw.index = range(1, len(current_raw) + 1)
+            edited_raw_df = st.data_editor(
+                current_raw,
+                num_rows="dynamic",
+                    use_container_width=True,
                 hide_index=False,
                 column_config={
                     "Point": st.column_config.TextColumn("Point", width="medium"),
@@ -146,40 +188,60 @@ if uploaded_raw is not None:
             )
             st.session_state["df_raw_edited"] = edited_raw_df
 
+        # 整理处理后的 DataFrame
+        df_design = None
+        if not st.session_state["df_design_edited"].empty:
+            temp_d = st.session_state["df_design_edited"].dropna(
+                subset=["Point"]
+            ).copy()
+            if not temp_d.empty:
+                temp_d["Point"] = temp_d["Point"].astype(str).str.strip()
+                temp_d.set_index("Point", inplace=True)
+                df_design = temp_d[["X", "Y", "Z"]]
+
+        df_ctrl = None
+        if not st.session_state["df_ctrl_edited"].empty:
+            temp_c = st.session_state["df_ctrl_edited"].dropna(
+                subset=["Point"]
+            ).copy()
+            if not temp_c.empty:
+                temp_c["Point"] = temp_c["Point"].astype(str).str.strip()
+                temp_c.set_index("Point", inplace=True)
+                df_ctrl = temp_c[["X", "Y", "Z"]]
+
         df_raw = st.session_state["df_raw_edited"].copy()
         df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
         total_rows = len(df_raw)
 
-        with col_main2:
-            st.subheader("🛠️ Step 1: Split Ranges")
-            st.info(f"Total rows in Raw Data: **{total_rows}**.")
+        # --- Step 1: Split Ranges ---
+        st.markdown("---")
+        st.subheader("🛠️ Step 1: Split Ranges")
+        st.info(f"Total rows in Raw Data: **{total_rows}**.")
 
-            num_stations = st.number_input(
-                "Number of Stations", min_value=1, max_value=10, value=1, step=1
+        num_stations = st.number_input(
+            "Number of Stations", min_value=1, max_value=10, value=1, step=1
+        )
+
+        default_ranges_data = []
+        chunk_size = total_rows // num_stations if num_stations > 0 else total_rows
+        for i in range(num_stations):
+            start = i * chunk_size + 1
+            end = (
+                (i + 1) * chunk_size if i < num_stations - 1 else total_rows
             )
+            default_ranges_data.append({
+                "Station Name": f"Station-{i+1}",
+                "Start Row": int(start),
+                "End Row": int(end),
+            })
 
-            default_ranges_data = []
-            chunk_size = total_rows // num_stations
-            for i in range(num_stations):
-                start = i * chunk_size + 1
-                end = (
-                    (i + 1) * chunk_size
-                    if i < num_stations - 1
-                    else total_rows
-                )
-                default_ranges_data.append({
-                    "Station Name": f"Station-{i+1}",
-                    "Start Row": int(start),
-                    "End Row": int(end),
-                })
-
-            edited_ranges_df = st.data_editor(
-                pd.DataFrame(default_ranges_data),
-                num_rows="fixed",
-                use_container_width=True,
-                hide_index=True,
-                key="station_ranges_editor",
-            )
+        edited_ranges_df = st.data_editor(
+            pd.DataFrame(default_ranges_data),
+            num_rows="fixed",
+            use_container_width=True,
+            hide_index=True,
+            key="station_ranges_editor",
+        )
 
         station_configs = {}
         valid_ranges = True
@@ -224,7 +286,7 @@ if uploaded_raw is not None:
                     stn_raw_df = df_raw.iloc[s_start:s_end].copy()
                     stn_indexed = stn_raw_df.set_index("Point")
 
-                    if df_ctrl is not None:
+                    if df_ctrl is not None and not df_ctrl.empty:
                         common_ctrl = df_ctrl.index.intersection(
                             stn_indexed.index
                         )
@@ -303,7 +365,7 @@ if uploaded_raw is not None:
                                 stn_indexed[["X", "Y", "Z"]]
                             )
                         st.info(
-                            "ℹ️ Control Points not uploaded. Using raw data"
+                            "ℹ️ Control Points not provided. Using raw data"
                             " directly for this station."
                         )
 
@@ -376,7 +438,7 @@ if uploaded_raw is not None:
                     list(st.session_state["station_fitted_dfs"].values())
                 )
 
-                if df_design is not None:
+                if df_design is not None and not df_design.empty:
                     common_design = df_design.index.intersection(
                         combined_df.index
                     )
@@ -456,7 +518,7 @@ if uploaded_raw is not None:
                 else:
                     st.session_state["df_final_result"] = combined_df
                     st.info(
-                        "ℹ️ Design Points not uploaded. Merged stations are"
+                        "ℹ️ Design Points not provided. Merged stations are"
                         " ready for DXF/SCR preview and conversion below."
                     )
 
@@ -859,4 +921,7 @@ if uploaded_raw is not None:
     except Exception as e:
         st.error(f"Processing error: {e}")
 else:
-    st.info("👈 Please upload **Raw Data CSV** in the sidebar to start.")
+    st.info(
+        "👈 Please upload **Raw Data CSV** in the sidebar (or leave Design/Control"
+        " files to be edited/added manually) to start."
+    )
