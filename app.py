@@ -56,7 +56,7 @@ st.set_page_config(
     page_title="Multi-Station BestFit Pro", page_icon="🏗️", layout="wide"
 )
 
-st.title("🏗️ Complete Pipeline: Raw Data -> Station Split -> Fit -> Export")
+st.title("🏗️ 2D/3D BestFit Made By Ng Yit Fung")
 st.markdown(
     "Upload Raw Data and optional Control/Design points. Complete the workflow"
     " seamlessly."
