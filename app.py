@@ -1,3 +1,6 @@
+import os
+import ezdxf
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -52,17 +55,32 @@ class BestFitEngine:
         return err
 
 
+# CAD Color Mapping
+CAD_COLORS = {
+    "White (Default)": ("white", 7),
+    "Red": ("red", 1),
+    "Yellow": ("yellow", 2),
+    "Green": ("green", 3),
+    "Cyan": ("cyan", 4),
+    "Blue": ("blue", 5),
+    "Magenta": ("magenta", 6),
+    "Gray": ("gray", 8),
+}
+
 st.set_page_config(
-    page_title="Multi-Station BestFit Pro", page_icon="🏗️", layout="wide"
+    page_title="BestFit & DXF Converter Pro", page_icon="🏗️", layout="wide"
 )
 
-st.title("🏗️ 2D/3D BestFit Made By Ng Yit Fung")
+st.title(
+    "🏗️ Multi-Station BestFit Pipeline & CAD DXF Converter - Made by Ng Yit"
+    " Fung"
+)
 st.markdown(
-    "Upload Raw Data and optional Control/Design points. Complete the workflow"
-    " seamlessly."
+    "Complete Raw Data editing, Station splitting, 2D/3D BestFit with error"
+    " analysis, and export to CSV/DXF formats."
 )
 
-# Sidebar Uploads (Optional design & control points)
+# Sidebar Uploads
 st.sidebar.header("📂 Data Inputs")
 uploaded_design = st.sidebar.file_uploader(
     "Upload Design Points CSV (Optional)", type=["csv"], key="design_file"
@@ -285,7 +303,6 @@ if uploaded_raw is not None:
                                 " are required to fit."
                             )
                     else:
-                        # 如果没有上传 Control points，直接把原始数据存入（不做拟合）
                         if s_name not in st.session_state["station_fitted_dfs"]:
                             st.session_state["station_fitted_dfs"][s_name] = (
                                 stn_indexed[["X", "Y", "Z"]]
@@ -468,6 +485,280 @@ if uploaded_raw is not None:
                         ),
                         mime="text/csv",
                     )
+
+                    # --- Integration of CAD / DXF Converter & Preview ---
+                    st.markdown("---")
+                    st.subheader(
+                        "📐 CAD Layout Preview & DXF Converter (From Final"
+                        " Result)"
+                    )
+
+                    # Prepare DataFrame for DXF module
+                    dxf_df = st.session_state[
+                        "df_final_result"
+                    ].reset_index()
+                    dxf_df.columns = ["ID", "X", "Y", "Z"]
+
+                    st.write("### 🛠️ Step A: Label Display Settings")
+                    display_options = st.multiselect(
+                        "Select what to display in the label:",
+                        [
+                            "ID",
+                            "X Coordinate",
+                            "Y Coordinate",
+                            "Elevation (EL)",
+                        ],
+                        default=[
+                            "ID",
+                            "X Coordinate",
+                            "Y Coordinate",
+                            "Elevation (EL)",
+                        ],
+                        key="dxf_display_options",
+                    )
+
+                    with st.expander(
+                        "⚙️ Advanced Settings (Heights, Offsets, Colors & Point"
+                        " Style)",
+                        expanded=False,
+                    ):
+                        decimal_places = st.selectbox(
+                            "Decimal Places for Coordinates / EL",
+                            [3, 4],
+                            index=0,
+                            key="dxf_dec",
+                        )
+                        point_color = st.selectbox(
+                            "Point Symbol Color",
+                            list(CAD_COLORS.keys()),
+                            index=0,
+                            key="dxf_pt_color",
+                        )
+
+                        st.markdown("---")
+                        st.write("🎛️ **Individual Field Configurations**")
+                        field_configs = {}
+                        for field in [
+                            "ID",
+                            "X Coordinate",
+                            "Y Coordinate",
+                            "Elevation (EL)",
+                        ]:
+                            if field in display_options:
+                                st.markdown(f"**📌 {field} Configuration**")
+                                c1, c2, c3, c4 = st.columns(4)
+                                with c1:
+                                    h_val = st.number_input(
+                                        f"{field} Height",
+                                        value=1.0,
+                                        step=0.1,
+                                        key=f"h_{field}",
+                                    )
+                                with c2:
+                                    ox_val = st.number_input(
+                                        f"{field} X Offset",
+                                        value=0.5,
+                                        step=0.1,
+                                        key=f"ox_{field}",
+                                    )
+                                with c3:
+                                    oy_val = st.number_input(
+                                        f"{field} Y Offset",
+                                        value=0.5,
+                                        step=0.1,
+                                        key=f"oy_{field}",
+                                    )
+                                with c4:
+                                    default_c_idx = (
+                                        2 if field == "Elevation (EL)" else 0
+                                    )
+                                    c_val = st.selectbox(
+                                        f"{field} Color",
+                                        list(CAD_COLORS.keys()),
+                                        index=default_c_idx,
+                                        key=f"c_{field}",
+                                    )
+
+                                field_configs[field] = {
+                                    "height": h_val,
+                                    "offset_x": ox_val,
+                                    "offset_y": oy_val,
+                                    "color_name": CAD_COLORS[c_val][0],
+                                    "color_idx": CAD_COLORS[c_val][1],
+                                }
+
+                        st.markdown("---")
+                        st.write("📍 **CAD Point Symbol Settings**")
+                        point_style_options = {
+                            "Dot (.)": 0,
+                            "Plus (+)": 2,
+                            "X Shape": 3,
+                            "Circle (○)": 32,
+                            "Square (□)": 64,
+                            "Circle & Cross (◎)": 34,
+                        }
+                        pdmode_val = st.selectbox(
+                            "Point Symbol Type",
+                            list(point_style_options.keys()),
+                            index=5,
+                            key="dxf_pdmode",
+                        )
+                        pdsize_val = st.number_input(
+                            "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
+                        )
+
+                    # Live Preview Window
+                    st.markdown("---")
+                    st.markdown("### 🖥️ Live Layout Preview")
+
+                    fig, ax = plt.subplots(figsize=(10, 8))
+                    fig.patch.set_facecolor("#0e1117")
+                    ax.set_facecolor("#0e1117")
+
+                    has_valid_data = False
+                    for idx, row in dxf_df.iterrows():
+                        try:
+                            x_val, y_val, z_val = (
+                                float(row["X"]),
+                                float(row["Y"]),
+                                float(row["Z"]),
+                            )
+                            id_val = str(row["ID"])
+                            fmt = f"{{:.{decimal_places}f}}"
+                            has_valid_data = True
+
+                            ax.scatter(
+                                [x_val],
+                                [y_val],
+                                color=CAD_COLORS[point_color][0],
+                                s=pdsize_val * 20,
+                                marker="o",
+                            )
+
+                            line_spacing_offset = 0.0
+                            for field in display_options:
+                                if field not in field_configs:
+                                    continue
+                                cfg = field_configs[field]
+
+                                if field == "ID":
+                                    text_content = id_val
+                                elif field == "X Coordinate":
+                                    text_content = f"X: {fmt.format(x_val)}"
+                                elif field == "Y Coordinate":
+                                    text_content = f"Y: {fmt.format(y_val)}"
+                                else:
+                                    text_content = f"EL: {fmt.format(z_val)}"
+
+                                fx = x_val + cfg["offset_x"]
+                                fy = (
+                                    y_val
+                                    + cfg["offset_y"]
+                                    - line_spacing_offset
+                                )
+                                ax.text(
+                                    fx,
+                                    fy,
+                                    text_content,
+                                    color=cfg["color_name"],
+                                    fontsize=max(
+                                        8, cfg["height"] * 6
+                                    ),
+                                )
+                                line_spacing_offset += cfg["height"] * 0.8
+                        except:
+                            continue
+
+                    if has_valid_data:
+                        ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
+                        ax.axvline(0, color="gray", linewidth=0.5, linestyle="--")
+                        ax.tick_params(colors="white")
+                        ax.xaxis.label.set_color("white")
+                        ax.yaxis.label.set_color("white")
+                        for spine in ax.spines.values():
+                            spine.set_edgecolor("gray")
+                        ax.set_xlabel("X Coordinate")
+                        ax.set_ylabel("Y Coordinate")
+                        ax.grid(True, linestyle=":", alpha=0.3, color="gray")
+                        ax.set_aspect("equal", adjustable="datalim")
+                        st.pyplot(fig)
+                    else:
+                        st.warning(
+                            "No valid coordinate data available to render."
+                        )
+
+                    # Generate DXF file
+                    doc = ezdxf.new(dxfversion="R2010")
+                    msp = doc.modelspace()
+                    doc.header["$PDMODE"] = point_style_options[pdmode_val]
+                    doc.header["$PDSIZE"] = pdsize_val
+
+                    for idx, row in dxf_df.iterrows():
+                        try:
+                            x_val, y_val, z_val = (
+                                float(row["X"]),
+                                float(row["Y"]),
+                                float(row["Z"]),
+                            )
+                            id_val = str(row["ID"])
+                            fmt = f"{{:.{decimal_places}f}}"
+
+                            msp.add_point(
+                                (x_val, y_val, z_val),
+                                dxfattribs={
+                                    "color": CAD_COLORS[point_color][1]
+                                },
+                            )
+
+                            line_spacing_offset = 0.0
+                            for field in display_options:
+                                if field not in field_configs:
+                                    continue
+                                cfg = field_configs[field]
+
+                                if field == "ID":
+                                    text_content = id_val
+                                elif field == "X Coordinate":
+                                    text_content = f"X: {fmt.format(x_val)}"
+                                elif field == "Y Coordinate":
+                                    text_content = f"Y: {fmt.format(y_val)}"
+                                else:
+                                    text_content = f"EL: {fmt.format(z_val)}"
+
+                                msp.add_text(
+                                    text_content,
+                                    dxfattribs={
+                                        "insert": (
+                                            x_val + cfg["offset_x"],
+                                            y_val
+                                            + cfg["offset_y"]
+                                            - line_spacing_offset,
+                                            z_val,
+                                        ),
+                                        "height": cfg["height"],
+                                        "color": cfg["color_idx"],
+                                    },
+                                )
+                                line_spacing_offset += cfg["height"] * 1.3
+                        except:
+                            continue
+
+                    import tempfile
+
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".dxf"
+                    ) as tmp:
+                        doc.saveas(tmp.name)
+                        with open(tmp.name, "rb") as f:
+                            dxf_data = f.read()
+                    os.unlink(tmp.name)
+
+                    st.download_button(
+                        "⬇️ Download Converted DXF File",
+                        data=dxf_data,
+                        file_name="final_station_layout.dxf",
+                        mime="application/dxf",
+                    )
             else:
                 st.info(
                     "👉 Please complete the individual steps for **all**"
@@ -477,4 +768,4 @@ if uploaded_raw is not None:
     except Exception as e:
         st.error(f"Processing error: {e}")
 else:
-  st.info("👈 Please upload **Raw Data CSV** in the sidebar to start.")
+    st.info("👈 Please upload **Raw Data CSV** in the sidebar to start.")
