@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import datetime
 from fpdf import FPDF
 import ezdxf
 import numpy as np
@@ -84,10 +85,11 @@ class PDFReport(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font("helvetica", "I", 8)
+        current_year = datetime.now().strftime("%Y")
         self.cell(
             0,
             10,
-            f"Page {self.page_no()} | Report Date: 2026",
+            f"Page {self.page_no()} | Report Date: {current_year}",
             0,
             0,
             "C",
@@ -99,10 +101,16 @@ def generate_pdf_report(df_final, df_err):
     pdf.add_page()
     pdf.set_font("helvetica", "", 10)
 
+    # 获取当前生成日期和时间
+    current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     # Summary Section
     pdf.set_font("helvetica", "B", 12)
     pdf.cell(0, 8, "1. Executive Summary", 0, 1, "L")
     pdf.set_font("helvetica", "", 10)
+    pdf.cell(
+        0, 6, f"Report Generation Date & Time: {current_date_str}", 0, 1, "L"
+    )
     pdf.cell(
         0, 6, f"Total Processed Points in Final Result: {len(df_final)}", 0, 1, "L"
     )
@@ -146,7 +154,6 @@ def generate_pdf_report(df_final, df_err):
             pdf.cell(35, 6, f"{float(row['Delta El']):.4f}", 1, 0, "C")
             pdf.cell(40, 6, f"{float(row['Total_Error']):.4f}", 1, 1, "C")
 
-    # 修复返回格式，确保为标准 bytes
     return bytes(pdf.output())
 
 
