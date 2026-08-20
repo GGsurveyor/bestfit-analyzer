@@ -58,6 +58,16 @@ class BestFitEngine:
         return err
 
 
+# 样式高亮函数：数值绝对值超过 0.002 时显示红色
+def highlight_excess_error(val):
+    try:
+        if abs(float(val)) > 0.002:
+            return "color: #ff4b4b; font-weight: bold;"
+    except (ValueError, TypeError):
+        pass
+    return ""
+
+
 # PDF Report Generator
 class PDFReport(FPDF):
 
@@ -101,7 +111,6 @@ def generate_pdf_report(df_final, df_err):
     pdf.add_page()
     pdf.set_font("helvetica", "", 10)
 
-    # 获取当前生成日期和时间
     current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Summary Section
@@ -170,7 +179,7 @@ CAD_COLORS = {
 }
 
 st.set_page_config(
-    page_title="2D/3D Multi-Station BestFit & DXF/SCR Converter Pro",
+    page_title="2D/3D Multi-Station BestFit & CAD DXF/SCR Converter Pro",
     page_icon="🏗️",
     layout="wide",
 )
@@ -198,7 +207,6 @@ uploaded_raw = st.sidebar.file_uploader(
 
 if uploaded_raw is not None:
     try:
-        # --- 初始化 Design Points 编辑器状态 ---
         if "df_design_edited" not in st.session_state:
             if uploaded_design is not None:
                 df_d_init = pd.read_csv(
@@ -214,7 +222,6 @@ if uploaded_raw is not None:
             df_d_init.index = range(1, len(df_d_init) + 1)
             st.session_state["df_design_edited"] = df_d_init
 
-        # --- 初始化 Control Points 编辑器状态 ---
         if "df_ctrl_edited" not in st.session_state:
             if uploaded_ctrl is not None:
                 df_c_init = pd.read_csv(
@@ -230,7 +237,6 @@ if uploaded_raw is not None:
             df_c_init.index = range(1, len(df_c_init) + 1)
             st.session_state["df_ctrl_edited"] = df_c_init
 
-        # --- 初始化 Raw Data 编辑器状态 ---
         if "df_raw_edited" not in st.session_state:
             df_r_init = pd.read_csv(
                 uploaded_raw,
@@ -254,7 +260,6 @@ if uploaded_raw is not None:
             ),
         }
 
-        # --- 第一排：Design Points Editor & Control Points Editor ---
         st.markdown("---")
         col_row1_1, col_row1_2 = st.columns(2)
 
@@ -322,7 +327,6 @@ if uploaded_raw is not None:
         df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
         total_rows = len(df_raw)
 
-        # --- 第二排：Raw Data Editor & Step 1: Split Ranges ---
         st.markdown("---")
         col_row2_1, col_row2_2 = st.columns(2)
 
@@ -398,7 +402,6 @@ if uploaded_raw is not None:
                 f" between 1 and {total_rows})."
             )
         else:
-            # --- Step 2: Individual Station Fit ---
             st.markdown("---")
             st.subheader(
                 "🎯 Step 2: Individual Station Fit, Deviation Analysis &"
@@ -542,12 +545,22 @@ if uploaded_raw is not None:
                         st.markdown(f"**📊 Fit Deviation Analysis**")
                         if f"err_{s_name}" in st.session_state:
                             st.dataframe(
-                                st.session_state[f"err_{s_name}"].style.format({
+                                st.session_state[f"err_{s_name}"]
+                                .style.format({
                                     "Delta E": "{:.4f}",
                                     "Delta N": "{:.4f}",
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
-                                }),
+                                })
+                                .applymap(
+                                    highlight_excess_error,
+                                    subset=[
+                                        "Delta E",
+                                        "Delta N",
+                                        "Delta El",
+                                        "Total_Error",
+                                    ],
+                                ),
                                 use_container_width=True,
                             )
                         else:
@@ -568,7 +581,6 @@ if uploaded_raw is not None:
                             key=f"dl_btn_{s_name}",
                         )
 
-            # --- Step 3: Combine All Stations & Final BestFit ---
             st.markdown("---")
             st.subheader(
                 "🚀 Step 3: Merge Stations & Final BestFit with Design Points"
@@ -682,12 +694,22 @@ if uploaded_raw is not None:
                         st.markdown("#### 📊 Final Deviation Analysis")
                         if "err_final" in st.session_state:
                             st.dataframe(
-                                st.session_state["err_final"].style.format({
+                                st.session_state["err_final"]
+                                .style.format({
                                     "Delta E": "{:.4f}",
                                     "Delta N": "{:.4f}",
                                     "Delta El": "{:.4f}",
                                     "Total_Error": "{:.4f}",
-                                }),
+                                })
+                                .applymap(
+                                    highlight_excess_error,
+                                    subset=[
+                                        "Delta E",
+                                        "Delta N",
+                                        "Delta El",
+                                        "Total_Error",
+                                    ],
+                                ),
                                 use_container_width=True,
                             )
                         else:
@@ -713,7 +735,6 @@ if uploaded_raw is not None:
                         mime="text/csv",
                     )
 
-                    # --- Integration of CAD / DXF & SCR Converter & Preview ---
                     st.markdown("---")
                     st.subheader(
                         "📐 CAD Layout Preview & DXF/SCR Converter (From Result)"
@@ -832,7 +853,6 @@ if uploaded_raw is not None:
                             "Point Size", value=1.5, step=0.2, key="dxf_pdsize"
                         )
 
-                    # Live Preview Window with Plotly
                     st.markdown("---")
                     st.markdown(
                         "### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom"
@@ -948,7 +968,6 @@ if uploaded_raw is not None:
                     else:
                         st.warning("No coordinate values detected.")
 
-                    # --- Generate DXF & SCR Files ---
                     doc = ezdxf.new(dxfversion="R2010")
                     msp = doc.modelspace()
                     doc.header["$PDMODE"] = point_style_options[pdmode_val]
@@ -1053,7 +1072,6 @@ if uploaded_raw is not None:
                             use_container_width=True,
                         )
 
-                    # --- 最下方：整体数据 PDF 报告下载 ---
                     st.markdown("---")
                     st.subheader("📄 Comprehensive PDF Report Export")
                     pdf_bytes = generate_pdf_report(
