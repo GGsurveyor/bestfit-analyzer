@@ -76,8 +76,8 @@ st.title(
     " Fung"
 )
 st.markdown(
-    "Complete Raw Data editing, Station splitting, 2D/3D BestFit with error"
-    " analysis, and export to CSV/DXF formats."
+    "Complete Raw Data editing, Station splitting, BestFit analysis, and"
+    " export to CSV/DXF formats."
 )
 
 # Sidebar Uploads
@@ -440,11 +440,11 @@ if uploaded_raw is not None:
                             " required."
                         )
                 else:
-                    if "df_final_result" not in st.session_state:
-                        st.session_state["df_final_result"] = combined_df
+                    # 如果没有上传 Design points，直接使用合并后的分站数据作为最终结果
+                    st.session_state["df_final_result"] = combined_df
                     st.info(
-                        "ℹ️ Design Points not uploaded. Displaying merged"
-                        " combined stations directly."
+                        "ℹ️ Design Points not uploaded. Merged stations are"
+                        " ready for DXF preview and conversion below."
                     )
 
                 if "df_final_result" in st.session_state:
@@ -476,12 +476,11 @@ if uploaded_raw is not None:
                     st.download_button(
                         label=(
                             "📥 Download Final Result"
-                            " [station-1+2+3+4_after BestFit with design"
-                            " point.CSV]"
+                            " [station-1+2+3+4_after BestFit.CSV]"
                         ),
                         data=final_csv,
                         file_name=(
-                            "station-1+2+3+4_after_BestFit_with_design_point.CSV"
+                            "station-1+2+3+4_after_BestFit_Result.CSV"
                         ),
                         mime="text/csv",
                     )
@@ -489,11 +488,9 @@ if uploaded_raw is not None:
                     # --- Integration of CAD / DXF Converter & Preview ---
                     st.markdown("---")
                     st.subheader(
-                        "📐 CAD Layout Preview & DXF Converter (From Final"
-                        " Result)"
+                        "📐 CAD Layout Preview & DXF Converter (From Result)"
                     )
 
-                    # Prepare DataFrame for DXF module
                     dxf_df = st.session_state[
                         "df_final_result"
                     ].reset_index()
@@ -762,7 +759,7 @@ if uploaded_raw is not None:
             else:
                 st.info(
                     "👉 Please complete the individual steps for **all**"
-                    " defined stations in Step 2 before proceeding to Step 3."
+                    " defined stations in Step 2 before proceeding."
                 )
 
     except Exception as e:
