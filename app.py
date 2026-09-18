@@ -103,18 +103,57 @@ class TransformEngine:
 
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points, target_z=0.0):
+        """
+        3D Plane Fit & Leveling (Least Squares SVD Plane Fitting + Rotation)
+        Fits a 3D plane to selected points and rotates the point cloud so that the plane becomes horizontal.
+        """
         res = df.copy()
-        z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[-1])
-        if selected_points and len(selected_points) > 0:
-            if res.index.name == "Point" or str(res.index.dtype) in ["object", "int64"]:
-                sub_df = res[res.index.isin(selected_points)]
-            else:
-                sub_df = res[res["Point"].isin(selected_points)]
-                
-            if not sub_df.empty:
-                current_mean_z = sub_df[z_col].mean()
-                delta_z = target_z - current_mean_z
-                res[z_col] += delta_z
+        x_col = "X/E" if "X/E" in res.columns else ("X" if "X" in res.columns else res.columns[1])
+        y_col = "Y/N" if "Y/N" in res.columns else ("Y" if "Y" in res.columns else res.columns[2])
+        z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[3])
+        p_col = res.columns[0]
+
+        if not selected_points or len(selected_points) == 0:
+            return res
+
+        sub = res[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
+        if sub.empty:
+            return res
+
+        pts_xyz = sub[[x_col, y_col, z_col]].values.astype(float)
+        
+        # 1. Centroid of selected points
+        centroid = np.mean(pts_xyz, axis=0)
+        
+        # 2. Least squares plane fit using SVD
+        centered = pts_xyz - centroid
+        _, _, Vt = np.linalg.svd(centered)
+        normal = Vt[2, :] # Normal vector (smallest singular value)
+        if normal[2] < 0:
+            normal = -normal
+            
+        target_normal = np.array([0.0, 0.0, 1.0])
+        v = np.cross(normal, target_normal)
+        c = np.dot(normal, target_normal)
+        if np.linalg.norm(v) < 1e-8:
+            R = np.eye(3)
+        else:
+            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+            R = np.eye(3) + vx + np.dot(vx, vx) * (1 - c) / (np.linalg.norm(v)**2)
+            
+        # Rotate all points around the centroid of selected points
+        all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
+        rotated = np.dot(all_xyz - centroid, R.T) + centroid
+        
+        # Shift Z so that mean Z of selected points equals target_z
+        rotated_sub = rotated[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
+        mean_z_rot = np.mean(rotated_sub[:, 2])
+        delta_z = target_z - mean_z_rot
+        rotated[:, 2] += delta_z
+        
+        res[x_col] = rotated[:, 0]
+        res[y_col] = rotated[:, 1]
+        res[z_col] = rotated[:, 2]
         return res
 
 
@@ -169,9 +208,9 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
     pdf.set_font("helvetica", "", 9)
     for idx, row in df_final.iterrows():
         pdf.cell(50, 6, str(idx), 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['X'] if 'X' in row else row.iloc[0]):.4f}", 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['Y'] if 'Y' in row else row.iloc[1]):.4f}", 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['Z'] if 'Z' in row else row.iloc[2]):.4f}", 1, 1, "C")
+        pdf.cell(45, 6, f"{float(row['X']):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Y']):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Z']):.4f}", 1, 1, "C")
 
     pdf.ln(6)
 
@@ -335,7 +374,7 @@ if uploaded_raw is not None:
             )
 
         # -----------------------------------------------------------------
-        # 🌐 选项A：分站前（Pre-Station）全局预处理与坐标变换区域
+        # 🌐 Option A: 分站前（Pre-Station）全局预处理与坐标变换区域
         # -----------------------------------------------------------------
         with st.expander("🌐 [Option A: Pre-Station] Global Raw Data Transform & Alignment (Before Splitting Stations)", expanded=False):
             st.write("### 🎛️ Global Pre-Processing Operations")
@@ -345,7 +384,7 @@ if uploaded_raw is not None:
                     "None",
                     "Set to (0,0,0)",
                     "Custom Coord Set (Translate by delta)",
-                    "Fit to horizontal plane",
+                    "Fit to horizontal plane (3D Plane Fit)",
                     "Rotate E/N plane (X/Y)",
                     "Rollback / Reset Raw Data"
                 ],
@@ -355,8 +394,8 @@ if uploaded_raw is not None:
             raw_point_ids = list(st.session_state["df_raw_edited"]["Point"].astype(str).str.strip())
             selected_pre_pts = []
             
-            if t_action_pre == "Fit to horizontal plane":
-                selected_pre_pts = st.multiselect("Select Target Points for Horizontal Fit", options=raw_point_ids, key="pre_tr_selected_pts")
+            if t_action_pre == "Fit to horizontal plane (3D Plane Fit)":
+                selected_pre_pts = st.multiselect("Select Target Points for 3D Plane Fit", options=raw_point_ids, key="pre_tr_selected_pts")
                 target_z_pre = st.number_input("Target Elevation (Z)", value=0.0, step=0.01, key="pre_tr_target_z")
             elif t_action_pre == "Custom Coord Set (Translate by delta)":
                 p_dx = st.number_input("Delta X/E", value=0.0, step=1.0, key="pre_tr_dx")
@@ -376,9 +415,9 @@ if uploaded_raw is not None:
                 elif t_action_pre == "Custom Coord Set (Translate by delta)":
                     st.session_state["df_raw_edited"] = TransformEngine.translate(cur_df, p_dx, p_dy, p_dz)
                     st.success("Pre-station translation applied.")
-                elif t_action_pre == "Fit to horizontal plane":
+                elif t_action_pre == "Fit to horizontal plane (3D Plane Fit)":
                     st.session_state["df_raw_edited"] = TransformEngine.fit_to_horizontal_plane(cur_df, selected_pre_pts, target_z_pre)
-                    st.success("Pre-station horizontal plane fit applied.")
+                    st.success("Pre-station 3D Plane Fit applied.")
                 elif "Rotate" in t_action_pre:
                     st.session_state["df_raw_edited"] = TransformEngine.rotate_plane(cur_df, "E/N plane (X/Y)", p_angle)
                     st.success("Pre-station rotation applied.")
@@ -455,20 +494,20 @@ if uploaded_raw is not None:
                             st.session_state["station_fitted_dfs"][s_name] = stn_calc_indexed[["X", "Y", "Z"]]
 
                     # -----------------------------------------------------------------
-                    # 🌐 选项B：分站后（Post-Station）独立测站微调与变换
+                    # 🌐 Option B: 分站后（Post-Station）独立测站微调与变换
                     # -----------------------------------------------------------------
                     with st.expander(f"🌐 [Option B: Post-Station] Transform / Adjust for {s_name}", expanded=False):
                         st.write(f"### 🎛️ Individual Post-Station Adjustments for {s_name}")
                         t_action_post = st.selectbox(
                             f"Select Transform Action for {s_name}",
-                            ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
+                            ["None", "Translate (Delta)", "Fit to horizontal plane (3D Plane Fit)", "Rotate E/N plane (X/Y)"],
                             key=f"post_tr_action_{s_name}"
                         )
                         
                         stn_curr_pts = list(stn_calc_indexed.index)
                         selected_post_pts = []
-                        if t_action_post == "Fit to horizontal plane":
-                            selected_post_pts = st.multiselect(f"Select Points for {s_name} Horizontal Fit", options=stn_curr_pts, key=f"post_tr_pts_{s_name}")
+                        if t_action_post == "Fit to horizontal plane (3D Plane Fit)":
+                            selected_post_pts = st.multiselect(f"Select Points for {s_name} 3D Plane Fit", options=stn_curr_pts, key=f"post_tr_pts_{s_name}")
                             target_z_post = st.number_input(f"Target Z for {s_name}", value=0.0, step=0.01, key=f"post_tr_z_{s_name}")
                         elif t_action_post == "Translate (Delta)":
                             s_dx = st.number_input(f"Delta X for {s_name}", value=0.0, step=1.0, key=f"post_dx_{s_name}")
@@ -487,10 +526,10 @@ if uploaded_raw is not None:
                                 res_tf = TransformEngine.translate(target_df, s_dx, s_dy, s_dz)
                                 st.session_state["station_fitted_dfs"][s_name] = res_tf
                                 st.success(f"Successfully translated {s_name}.")
-                            elif t_action_post == "Fit to horizontal plane":
+                            elif t_action_post == "Fit to horizontal plane (3D Plane Fit)":
                                 res_tf = TransformEngine.fit_to_horizontal_plane(target_df, selected_post_pts, target_z_post)
                                 st.session_state["station_fitted_dfs"][s_name] = res_tf
-                                st.success(f"Successfully fitted {s_name} to horizontal plane.")
+                                st.success(f"Successfully applied 3D Plane Fit to {s_name}.")
                             elif "Rotate" in t_action_post:
                                 res_tf = TransformEngine.rotate_plane(target_df, "E/N plane (X/Y)", s_angle)
                                 st.session_state["station_fitted_dfs"][s_name] = res_tf
@@ -617,7 +656,7 @@ if uploaded_raw is not None:
                     st.write("### 🎛️ Final Stage Adjustments on Merged Data")
                     t_action_final = st.selectbox(
                         "Select Transform Action for Merged Data",
-                        ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
+                        ["None", "Translate (Delta)", "Fit to horizontal plane (3D Plane Fit)", "Rotate E/N plane (X/Y)"],
                         key="final_tr_action"
                     )
                     
@@ -625,8 +664,8 @@ if uploaded_raw is not None:
                     combined_pts = list(base_df_for_step4.index)
                     selected_final_pts = []
                     
-                    if t_action_final == "Fit to horizontal plane":
-                        selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit (e.g. 1.1 to 1.52)", options=combined_pts, key="final_tr_pts")
+                    if t_action_final == "Fit to horizontal plane (3D Plane Fit)":
+                        selected_final_pts = st.multiselect("Select Points for Final 3D Plane Fit", options=combined_pts, key="final_tr_pts")
                         target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
                     elif t_action_final == "Translate (Delta)":
                         f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
@@ -644,7 +683,7 @@ if uploaded_raw is not None:
                         else:
                             if t_action_final == "Translate (Delta)":
                                 res_tf = TransformEngine.translate(base_df_for_step4, f_dx, f_dy, f_dz)
-                            elif t_action_final == "Fit to horizontal plane":
+                            elif t_action_final == "Fit to horizontal plane (3D Plane Fit)":
                                 res_tf = TransformEngine.fit_to_horizontal_plane(base_df_for_step4, selected_final_pts, target_z_final)
                             elif "Rotate" in t_action_final:
                                 res_tf = TransformEngine.rotate_plane(base_df_for_step4, "E/N plane (X/Y)", f_angle)
@@ -688,124 +727,159 @@ if uploaded_raw is not None:
                         mime="text/csv",
                     )
 
-                # =================================================================
-                # 🌐 NEW: CAD Layout Preview & DXF/SCR Source Selector (From Step 3 or Step 4)
-                # =================================================================
-                st.markdown("---")
-                st.subheader("📐 CAD Layout Preview & DXF/SCR Converter")
-
-                cad_source_choice = st.radio(
-                    "Select Data Source for CAD Preview & Export",
-                    ["Step 3 Result (Merged Stations After BestFit)", "Step 4 Result (Post-Adjustment Merged Result)"],
-                    index=1 if "df_final_result" in st.session_state else 0,
-                    key="cad_source_radio"
-                )
-
-                if "Step 3" in cad_source_choice:
-                    if "df_step3_result" in st.session_state:
-                        active_cad_df = st.session_state["df_step3_result"]
-                        active_err_df = st.session_state.get("err_step3", pd.DataFrame())
-                        source_label_str = "Step 3 Result"
-                    else:
-                        active_cad_df = combined_df
-                        active_err_df = pd.DataFrame()
-                        source_label_str = "Combined Stations (Default)"
-                else:
-                    if "df_final_result" in st.session_state:
-                        active_cad_df = st.session_state["df_final_result"]
-                        active_err_df = st.session_state.get("err_final", pd.DataFrame())
-                        source_label_str = "Step 4 Result"
-                    else:
-                        st.warning("⚠️ Step 4 Result not found yet. Defaulting to Step 3 Result. Please click 'Apply Transform' in Step 4 to generate Step 4 result.")
-                        active_cad_df = st.session_state.get("df_step3_result", combined_df)
-                        active_err_df = st.session_state.get("err_step3", pd.DataFrame())
-                        source_label_str = "Step 3 Result (Fallback)"
-
-                st.info(f"📍 Currently previewing and exporting using: **{source_label_str}**")
-
-                dxf_df = active_cad_df.reset_index()
-                dxf_df.columns = ["ID", "X", "Y", "Z"]
-
-                st.write("### 🛠️ Step A: Label Display Settings")
-                display_options = st.multiselect(
-                    "Select what to display in the label:",
-                    ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
-                    default=["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
-                    key="dxf_display_options",
-                )
-
-                with st.expander("⚙️ Advanced Settings (Heights, Offsets, Colors & Point Style)", expanded=False):
-                    decimal_places = st.selectbox("Decimal Places for Coordinates / EL", [3, 4], index=0, key="dxf_dec")
-                    point_color = st.selectbox("Point Symbol Color", list(CAD_COLORS.keys()), index=0, key="dxf_pt_color")
-
                     st.markdown("---")
-                    st.write("🎛️ **Individual Field Configurations**")
-                    field_configs = {}
-                    for field in ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"]:
-                        if field in display_options:
-                            st.markdown(f"**📌 {field} Configuration**")
-                            c1, c2, c3, c4 = st.columns(4)
-                            with c1:
-                                h_val = st.number_input(f"{field} Height", value=1.0, step=0.1, key=f"h_{field}")
-                            with c2:
-                                ox_val = st.number_input(f"{field} X Offset", value=0.5, step=0.1, key=f"ox_{field}")
-                            with c3:
-                                oy_val = st.number_input(f"{field} Y Offset", value=0.5, step=0.1, key=f"oy_{field}")
-                            with c4:
-                                default_c_idx = 2 if field == "Elevation (EL)" else 0
-                                c_val = st.selectbox(f"{field} Color", list(CAD_COLORS.keys()), index=default_c_idx, key=f"c_{field}")
+                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (From Step 4 Result)")
 
-                            field_configs[field] = {
-                                "height": h_val,
-                                "offset_x": ox_val,
-                                "offset_y": oy_val,
-                                "color_name": CAD_COLORS[c_val][0],
-                                "color_idx": CAD_COLORS[c_val][1],
-                            }
+                    dxf_df = st.session_state["df_final_result"].reset_index()
+                    dxf_df.columns = ["ID", "X", "Y", "Z"]
 
-                    st.markdown("---")
-                    st.write("📍 **CAD Point Symbol Settings**")
-                    point_style_options = {
-                        "Dot (.)": 0,
-                        "Plus (+)": 2,
-                        "X Shape": 3,
-                        "Circle (○)": 32,
-                        "Square (□)": 64,
-                        "Circle & Cross (◎)": 34,
-                    }
-                    pdmode_val = st.selectbox("Point Symbol Type", list(point_style_options.keys()), index=5, key="dxf_pdmode")
-                    pdsize_val = st.number_input("Point Size", value=1.5, step=0.2, key="dxf_pdsize")
-
-                st.markdown("---")
-                st.markdown("### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom & Pan)")
-
-                valid_xs, valid_ys = [], []
-                for _, row in dxf_df.iterrows():
-                    try:
-                        valid_xs.append(float(row["X"]))
-                        valid_ys.append(float(row["Y"]))
-                    except:
-                        continue
-
-                if valid_xs and valid_ys:
-                    fig = go.Figure()
-                    fig.add_trace(
-                        go.Scatter(
-                            x=dxf_df["X"],
-                            y=dxf_df["Y"],
-                            mode="markers",
-                            marker=dict(color=CAD_COLORS[point_color][0], size=max(6, pdsize_val * 6), symbol="circle"),
-                            text=dxf_df["ID"],
-                            name="Points",
-                            hoverinfo="text+x+y",
-                        )
+                    st.write("### 🛠️ Step A: Label Display Settings")
+                    display_options = st.multiselect(
+                        "Select what to display in the label:",
+                        ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
+                        default=["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
+                        key="dxf_display_options",
                     )
+
+                    with st.expander("⚙️ Advanced Settings (Heights, Offsets, Colors & Point Style)", expanded=False):
+                        decimal_places = st.selectbox("Decimal Places for Coordinates / EL", [3, 4], index=0, key="dxf_dec")
+                        point_color = st.selectbox("Point Symbol Color", list(CAD_COLORS.keys()), index=0, key="dxf_pt_color")
+
+                        st.markdown("---")
+                        st.write("🎛️ **Individual Field Configurations**")
+                        field_configs = {}
+                        for field in ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"]:
+                            if field in display_options:
+                                st.markdown(f"**📌 {field} Configuration**")
+                                c1, c2, c3, c4 = st.columns(4)
+                                with c1:
+                                    h_val = st.number_input(f"{field} Height", value=1.0, step=0.1, key=f"h_{field}")
+                                with c2:
+                                    ox_val = st.number_input(f"{field} X Offset", value=0.5, step=0.1, key=f"ox_{field}")
+                                with c3:
+                                    oy_val = st.number_input(f"{field} Y Offset", value=0.5, step=0.1, key=f"oy_{field}")
+                                with c4:
+                                    default_c_idx = 2 if field == "Elevation (EL)" else 0
+                                    c_val = st.selectbox(f"{field} Color", list(CAD_COLORS.keys()), index=default_c_idx, key=f"c_{field}")
+
+                                field_configs[field] = {
+                                    "height": h_val,
+                                    "offset_x": ox_val,
+                                    "offset_y": oy_val,
+                                    "color_name": CAD_COLORS[c_val][0],
+                                    "color_idx": CAD_COLORS[c_val][1],
+                                }
+
+                        st.markdown("---")
+                        st.write("📍 **CAD Point Symbol Settings**")
+                        point_style_options = {
+                            "Dot (.)": 0,
+                            "Plus (+)": 2,
+                            "X Shape": 3,
+                            "Circle (○)": 32,
+                            "Square (□)": 64,
+                            "Circle & Cross (◎)": 34,
+                        }
+                        pdmode_val = st.selectbox("Point Symbol Type", list(point_style_options.keys()), index=5, key="dxf_pdmode")
+                        pdsize_val = st.number_input("Point Size", value=1.5, step=0.2, key="dxf_pdsize")
+
+                    st.markdown("---")
+                    st.markdown("### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom & Pan)")
+
+                    valid_xs, valid_ys = [], []
+                    for _, row in dxf_df.iterrows():
+                        try:
+                            valid_xs.append(float(row["X"]))
+                            valid_ys.append(float(row["Y"]))
+                        except:
+                            continue
+
+                    if valid_xs and valid_ys:
+                        fig = go.Figure()
+                        fig.add_trace(
+                            go.Scatter(
+                                x=dxf_df["X"],
+                                y=dxf_df["Y"],
+                                mode="markers",
+                                marker=dict(color=CAD_COLORS[point_color][0], size=max(6, pdsize_val * 6), symbol="circle"),
+                                text=dxf_df["ID"],
+                                name="Points",
+                                hoverinfo="text+x+y",
+                            )
+                        )
+
+                        for idx, row in dxf_df.iterrows():
+                            try:
+                                x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
+                                id_val = str(row["ID"])
+                                fmt = f"{{:.{decimal_places}f}}"
+
+                                line_spacing_offset = 0.0
+                                for field in display_options:
+                                    if field not in field_configs:
+                                        continue
+                                    cfg = field_configs[field]
+
+                                    if field == "ID":
+                                        text_content = id_val
+                                    elif field == "X Coordinate":
+                                        text_content = f"X: {fmt.format(x_val)}"
+                                    elif field == "Y Coordinate":
+                                        text_content = f"Y: {fmt.format(y_val)}"
+                                    else:
+                                        text_content = f"EL: {fmt.format(z_val)}"
+
+                                    fx = x_val + cfg["offset_x"]
+                                    fy = y_val + cfg["offset_y"] - line_spacing_offset
+
+                                    fig.add_annotation(
+                                        x=fx,
+                                        y=fy,
+                                        text=text_content,
+                                        showarrow=False,
+                                        font=dict(color=cfg["color_name"], size=max(10, cfg["height"] * 9)),
+                                        xanchor="left",
+                                        yanchor="bottom",
+                                    )
+                                    line_spacing_offset += cfg["height"] * 0.8
+                            except:
+                                continue
+
+                        fig.update_layout(
+                            paper_bgcolor="black",
+                            plot_bgcolor="black",
+                            xaxis_title="X Coordinate",
+                            yaxis_title="Y Coordinate",
+                            xaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)"),
+                            yaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)", scaleanchor="x", scaleratio=1),
+                            margin=dict(l=20, r=20, t=20, b=20),
+                            height=700,
+                            hovermode="closest",
+                        )
+
+                        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+                    else:
+                        st.warning("No coordinate values detected.")
+
+                    doc = ezdxf.new(dxfversion="R2010")
+                    msp = doc.modelspace()
+                    doc.header["$PDMODE"] = point_style_options[pdmode_val]
+                    doc.header["$PDSIZE"] = pdsize_val
+
+                    scr_lines = ["ucs W", "Osnapcoord 1"]
 
                     for idx, row in dxf_df.iterrows():
                         try:
                             x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
                             id_val = str(row["ID"])
                             fmt = f"{{:.{decimal_places}f}}"
+
+                            msp.add_point((x_val, y_val, z_val), dxfattribs={"color": CAD_COLORS[point_color][1]})
+
+                            scr_lines.append("SPHERE")
+                            scr_lines.append(f"{x_val:.7f},{y_val:.7f},{z_val:.7f}")
+                            scr_lines.append("D")
+                            scr_lines.append(f"{pdsize_val * 0.01:.5f}")
 
                             line_spacing_offset = 0.0
                             for field in display_options:
@@ -825,129 +899,60 @@ if uploaded_raw is not None:
                                 fx = x_val + cfg["offset_x"]
                                 fy = y_val + cfg["offset_y"] - line_spacing_offset
 
-                                fig.add_annotation(
-                                    x=fx,
-                                    y=fy,
-                                    text=text_content,
-                                    showarrow=False,
-                                    font=dict(color=cfg["color_name"], size=max(10, cfg["height"] * 9)),
-                                    xanchor="left",
-                                    yanchor="bottom",
+                                msp.add_text(
+                                    text_content,
+                                    dxfattribs={"insert": (fx, fy, z_val), "height": cfg["height"], "color": cfg["color_idx"]},
                                 )
-                                line_spacing_offset += cfg["height"] * 0.8
+
+                                scr_lines.append(f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f} {cfg['height']:.4f} 0 {text_content}")
+                                line_spacing_offset += cfg["height"] * 1.3
                         except:
                             continue
 
-                    fig.update_layout(
-                        paper_bgcolor="black",
-                        plot_bgcolor="black",
-                        xaxis_title="X Coordinate",
-                        yaxis_title="Y Coordinate",
-                        xaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)"),
-                        yaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)", scaleanchor="x", scaleratio=1),
-                        margin=dict(l=20, r=20, t=20, b=20),
-                        height=700,
-                        hovermode="closest",
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp:
+                        doc.saveas(tmp.name)
+                        with open(tmp.name, "rb") as f:
+                            dxf_data = f.read()
+                    os.unlink(tmp.name)
+
+                    scr_content = "\n".join(scr_lines)
+                    scr_data = scr_content.encode("utf-8")
+
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        st.download_button(
+                            "⬇️ Download Step 4 DXF File",
+                            data=dxf_data,
+                            file_name="step4_adjusted_station_layout.dxf",
+                            mime="application/dxf",
+                            use_container_width=True,
+                        )
+                    with col_dl2:
+                        st.download_button(
+                            "⬇️ Download Step 4 AutoCAD Script (.SCR)",
+                            data=scr_data,
+                            file_name="step4_adjusted_station_layout.scr",
+                            mime="text/plain",
+                            use_container_width=True,
+                        )
+
+                    st.markdown("---")
+                    st.subheader("📄 Comprehensive PDF Report Export (Step 4)")
+
+                    include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
+
+                    pdf_bytes = generate_pdf_report(
+                        st.session_state["df_final_result"],
+                        st.session_state.get("err_final", pd.DataFrame()),
+                        include_deviation=include_dev_in_pdf
                     )
-
-                    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
-                else:
-                    st.warning("No coordinate values detected.")
-
-                doc = ezdxf.new(dxfversion="R2010")
-                msp = doc.modelspace()
-                doc.header["$PDMODE"] = point_style_options[pdmode_val]
-                doc.header["$PDSIZE"] = pdsize_val
-
-                scr_lines = ["ucs W", "Osnapcoord 1"]
-
-                for idx, row in dxf_df.iterrows():
-                    try:
-                        x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
-                        id_val = str(row["ID"])
-                        fmt = f"{{:.{decimal_places}f}}"
-
-                        msp.add_point((x_val, y_val, z_val), dxfattribs={"color": CAD_COLORS[point_color][1]})
-
-                        scr_lines.append("SPHERE")
-                        scr_lines.append(f"{x_val:.7f},{y_val:.7f},{z_val:.7f}")
-                        scr_lines.append("D")
-                        scr_lines.append(f"{pdsize_val * 0.01:.5f}")
-
-                        line_spacing_offset = 0.0
-                        for field in display_options:
-                            if field not in field_configs:
-                                continue
-                            cfg = field_configs[field]
-
-                            if field == "ID":
-                                text_content = id_val
-                            elif field == "X Coordinate":
-                                text_content = f"X: {fmt.format(x_val)}"
-                            elif field == "Y Coordinate":
-                                text_content = f"Y: {fmt.format(y_val)}"
-                            else:
-                                text_content = f"EL: {fmt.format(z_val)}"
-
-                            fx = x_val + cfg["offset_x"]
-                            fy = y_val + cfg["offset_y"] - line_spacing_offset
-
-                            msp.add_text(
-                                text_content,
-                                dxfattribs={"insert": (fx, fy, z_val), "height": cfg["height"], "color": cfg["color_idx"]},
-                            )
-
-                            scr_lines.append(f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f} {cfg['height']:.4f} 0 {text_content}")
-                            line_spacing_offset += cfg["height"] * 1.3
-                    except:
-                        continue
-
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp:
-                    doc.saveas(tmp.name)
-                    with open(tmp.name, "rb") as f:
-                        dxf_data = f.read()
-                os.unlink(tmp.name)
-
-                scr_content = "\n".join(scr_lines)
-                scr_data = scr_content.encode("utf-8")
-
-                file_suffix_tag = "step3" if "Step 3" in cad_source_choice else "step4"
-
-                col_dl1, col_dl2 = st.columns(2)
-                with col_dl1:
                     st.download_button(
-                        f"⬇️ Download DXF File ({source_label_str})",
-                        data=dxf_data,
-                        file_name=f"{file_suffix_tag}_station_layout.dxf",
-                        mime="application/dxf",
+                        label="📥 Download Step 4 Comprehensive PDF Report",
+                        data=pdf_bytes,
+                        file_name="Step4_BestFit_Comprehensive_Report.pdf",
+                        mime="application/pdf",
                         use_container_width=True,
                     )
-                with col_dl2:
-                    st.download_button(
-                        f"⬇️ Download AutoCAD Script (.SCR) ({source_label_str})",
-                        data=scr_data,
-                        file_name=f"{file_suffix_tag}_station_layout.scr",
-                        mime="text/plain",
-                        use_container_width=True,
-                    )
-
-                st.markdown("---")
-                st.subheader(f"📄 Comprehensive PDF Report Export ({source_label_str})")
-
-                include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
-
-                pdf_bytes = generate_pdf_report(
-                    active_cad_df,
-                    active_err_df,
-                    include_deviation=include_dev_in_pdf
-                )
-                st.download_button(
-                    label=f"📥 Download Comprehensive PDF Report ({source_label_str})",
-                    data=pdf_bytes,
-                    file_name=f"{file_suffix_tag}_BestFit_Comprehensive_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
             else:
                 st.info("👉 Please complete the individual steps for **all** defined stations in Step 2 before proceeding.")
 
