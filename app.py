@@ -122,13 +122,10 @@ class TransformEngine:
 
         pts_xyz = sub[[x_col, y_col, z_col]].values.astype(float)
         
-        # 1. Centroid of selected points
         centroid = np.mean(pts_xyz, axis=0)
-        
-        # 2. Least squares plane fit using SVD
         centered = pts_xyz - centroid
         _, _, Vt = np.linalg.svd(centered)
-        normal = Vt[2, :] # Normal vector (smallest singular value)
+        normal = Vt[2, :] 
         if normal[2] < 0:
             normal = -normal
             
@@ -141,11 +138,9 @@ class TransformEngine:
             vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
             R = np.eye(3) + vx + np.dot(vx, vx) * (1 - c) / (np.linalg.norm(v)**2)
             
-        # Rotate all points around the centroid of selected points
         all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
         rotated = np.dot(all_xyz - centroid, R.T) + centroid
         
-        # Shift Z so that mean Z of selected points equals target_z
         rotated_sub = rotated[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
         mean_z_rot = np.mean(rotated_sub[:, 2])
         delta_z = target_z - mean_z_rot
@@ -373,9 +368,6 @@ if uploaded_raw is not None:
                 pd.DataFrame(default_ranges_data), num_rows="fixed", use_container_width=True, hide_index=True, key="station_ranges_editor"
             )
 
-        # -----------------------------------------------------------------
-        # 🌐 Option A: 分站前（Pre-Station）全局预处理与坐标变换区域
-        # -----------------------------------------------------------------
         with st.expander("🌐 [Option A: Pre-Station] Global Raw Data Transform & Alignment (Before Splitting Stations)", expanded=False):
             st.write("### 🎛️ Global Pre-Processing Operations")
             t_action_pre = st.selectbox(
@@ -493,9 +485,6 @@ if uploaded_raw is not None:
                         if s_name not in st.session_state["station_fitted_dfs"]:
                             st.session_state["station_fitted_dfs"][s_name] = stn_calc_indexed[["X", "Y", "Z"]]
 
-                    # -----------------------------------------------------------------
-                    # 🌐 Option B: 分站后（Post-Station）独立测站微调与变换
-                    # -----------------------------------------------------------------
                     with st.expander(f"🌐 [Option B: Post-Station] Transform / Adjust for {s_name}", expanded=False):
                         st.write(f"### 🎛️ Individual Post-Station Adjustments for {s_name}")
                         t_action_post = st.selectbox(
@@ -599,23 +588,18 @@ if uploaded_raw is not None:
                                 R_final, T_final = BestFitEngine.best_fit_2d(m_final, d_final)
 
                             final_coords = np.dot(combined_df[["X", "Y", "Z"]].values, R_final.T) + T_final
-                            df_final_result = pd.DataFrame(final_coords, index=combined_df.index, columns=["X", "Y", "Z"])
-                            st.session_state["df_step3_result"] = df_final_result
+                            df_step3_result = pd.DataFrame(final_coords, index=combined_df.index, columns=["X", "Y", "Z"])
+                            st.session_state["df_step3_result"] = df_step3_result
 
-                            err_final = BestFitEngine.calculate_error(df_final_result.loc[active_design_pts], df_design.loc[active_design_pts])
+                            err_final = BestFitEngine.calculate_error(df_step3_result.loc[active_design_pts], df_design.loc[active_design_pts])
                             st.session_state["err_step3"] = err_final
                             
-                            if "df_final_result" in st.session_state:
-                                del st.session_state["df_final_result"]
-                            if "err_final" in st.session_state:
-                                del st.session_state["err_final"]
-
                             st.success("🎉 Final Combined BestFit completed successfully!")
                     else:
                         st.warning("⚠️ At least 3 active common design points are required.")
                 else:
                     st.session_state["df_step3_result"] = combined_df
-                    st.info("ℹ️ Design Points not provided. Merged stations are ready for Step 3 preview or Step 4 adjustment.")
+                    st.info("ℹ️ Design Points not provided. Merged stations are ready as Step 3 result.")
 
                 if "df_step3_result" in st.session_state:
                     st.markdown("---")
@@ -646,9 +630,6 @@ if uploaded_raw is not None:
                         mime="text/csv",
                     )
 
-                # -----------------------------------------------------------------
-                # 🌐 Step 4: 选择性变换、调整、可视预览与 CAD/PDF 导出
-                # -----------------------------------------------------------------
                 st.markdown("---")
                 st.subheader("🎯 Step 4: Transform / Adjust Merged Stations & Post-Adjustment Visuals & CAD Export")
                 
@@ -698,39 +679,60 @@ if uploaded_raw is not None:
                             st.success("Successfully applied Step 4 transformation and generated custom analysis/preview!")
                         st.rerun()
 
-                if "df_final_result" in st.session_state:
+                if "df_step3_result" in st.session_state:
                     st.markdown("---")
-                    st.markdown("### 📊 Step 4: Post-Adjustment Result Preview & Deviation Analysis")
-                    col_res1, col_res2 = st.columns(2)
-
-                    with col_res1:
-                        st.markdown("#### 📋 Step 4 Result Preview")
-                        st.dataframe(st.session_state["df_final_result"].style.format("{:.4f}"), use_container_width=True)
-
-                    with col_res2:
-                        st.markdown("#### 📊 Step 4 Deviation Analysis")
-                        if "err_final" in st.session_state:
-                            st.dataframe(
-                                st.session_state["err_final"]
-                                .style.format({"Delta E": "{:.4f}", "Delta N": "{:.4f}", "Delta El": "{:.4f}", "Total_Error": "{:.4f}"})
-                                .map(highlight_excess_error, subset=["Delta E", "Delta N", "Delta El", "Total_Error"]),
-                                use_container_width=True,
-                            )
-                        else:
-                            st.info("No deviation data available for Step 4 adjustment.")
-
-                    step4_csv = st.session_state["df_final_result"].reset_index().to_csv(index=False, header=False, float_format="%.4f")
-                    st.download_button(
-                        label="📥 Download Step 4 Adjusted Result [station-Combine All_Step4_after.CSV]",
-                        data=step4_csv,
-                        file_name="station-Combine_All_Step4_after_Transform.CSV",
-                        mime="text/csv",
+                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (Source Selection)")
+                    
+                    # 💡 增加数据源选择（Step 3 还是 Step 4）
+                    cad_source_choice = st.radio(
+                        "Select Data Source for CAD Layout & Export",
+                        ["Step 3 Result (Merged & BestFit)", "Step 4 Result (Custom Transformed/Adjusted)"],
+                        index=0 if "df_final_result" not in st.session_state else 1,
+                        horizontal=True,
+                        key="cad_source_choice_radio"
                     )
+                    
+                    if "Step 3" in cad_source_choice:
+                        active_cad_df = st.session_state["df_step3_result"]
+                        active_err_df = st.session_state.get("err_step3", pd.DataFrame())
+                        source_label_str = "Step3"
+                    else:
+                        active_cad_df = st.session_state.get("df_final_result", st.session_state["df_step3_result"])
+                        active_err_df = st.session_state.get("err_final", pd.DataFrame())
+                        source_label_str = "Step4"
+
+                    if "df_final_result" in st.session_state:
+                        st.markdown("### 📊 Active Source Preview & Deviation Analysis")
+                        col_res1, col_res2 = st.columns(2)
+
+                        with col_res1:
+                            st.markdown(f"#### 📋 {source_label_str} Result Preview")
+                            st.dataframe(active_cad_df.style.format("{:.4f}"), use_container_width=True)
+
+                        with col_res2:
+                            st.markdown(f"#### 📊 {source_label_str} Deviation Analysis")
+                            if not active_err_df.empty:
+                                st.dataframe(
+                                    active_err_df
+                                    .style.format({"Delta E": "{:.4f}", "Delta N": "{:.4f}", "Delta El": "{:.4f}", "Total_Error": "{:.4f}"})
+                                    .map(highlight_excess_error, subset=["Delta E", "Delta N", "Delta El", "Total_Error"]),
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.info("No deviation data available for this source.")
+
+                        step_csv_data = active_cad_df.reset_index().to_csv(index=False, header=False, float_format="%.4f")
+                        st.download_button(
+                            label=f"📥 Download [{source_label_str}_Result.CSV]",
+                            data=step_csv_data,
+                            file_name=f"station-Combine_All_{source_label_str}_Result.CSV",
+                            mime="text/csv",
+                        )
 
                     st.markdown("---")
-                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (From Step 4 Result)")
+                    st.markdown(f"### 🖥️ Live Layout Preview & Export (Using **{source_label_str}**)")
 
-                    dxf_df = st.session_state["df_final_result"].reset_index()
+                    dxf_df = active_cad_df.reset_index()
                     dxf_df.columns = ["ID", "X", "Y", "Z"]
 
                     st.write("### 🛠️ Step A: Label Display Settings")
@@ -921,35 +923,35 @@ if uploaded_raw is not None:
                     col_dl1, col_dl2 = st.columns(2)
                     with col_dl1:
                         st.download_button(
-                            "⬇️ Download Step 4 DXF File",
+                            f"⬇️ Download {source_label_str} DXF File",
                             data=dxf_data,
-                            file_name="step4_adjusted_station_layout.dxf",
+                            file_name=f"{source_label_str.lower()}_station_layout.dxf",
                             mime="application/dxf",
                             use_container_width=True,
                         )
                     with col_dl2:
                         st.download_button(
-                            "⬇️ Download Step 4 AutoCAD Script (.SCR)",
+                            f"⬇️ Download {source_label_str} AutoCAD Script (.SCR)",
                             data=scr_data,
-                            file_name="step4_adjusted_station_layout.scr",
+                            file_name=f"{source_label_str.lower()}_station_layout.scr",
                             mime="text/plain",
                             use_container_width=True,
                         )
 
                     st.markdown("---")
-                    st.subheader("📄 Comprehensive PDF Report Export (Step 4)")
+                    st.subheader(f"📄 Comprehensive PDF Report Export ({source_label_str})")
 
                     include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
 
                     pdf_bytes = generate_pdf_report(
-                        st.session_state["df_final_result"],
-                        st.session_state.get("err_final", pd.DataFrame()),
+                        active_cad_df,
+                        active_err_df,
                         include_deviation=include_dev_in_pdf
                     )
                     st.download_button(
-                        label="📥 Download Step 4 Comprehensive PDF Report",
+                        label=f"📥 Download {source_label_str} Comprehensive PDF Report",
                         data=pdf_bytes,
-                        file_name="Step4_BestFit_Comprehensive_Report.pdf",
+                        file_name=f"{source_label_str}_BestFit_Comprehensive_Report.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                     )
