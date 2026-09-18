@@ -58,7 +58,7 @@ class BestFitEngine:
         return err
 
 
-# 坐标变换计算引擎（对应新增的 Transform 功能）
+# 坐标变换计算引擎（对应新增的 Transform 菜单功能）
 class TransformEngine:
 
     @staticmethod
@@ -76,19 +76,16 @@ class TransformEngine:
         cos_a, sin_a = np.cos(rad), np.sin(rad)
 
         if plane_type == "E/N plane (X/Y)":
-            # 绕 Z 轴旋转
             x = res["X"].values
             y = res["Y"].values
             res["X"] = x * cos_a - y * sin_a
             res["Y"] = x * sin_a + y * cos_a
         elif plane_type == "N/EL plane (Y/Z)":
-            # 绕 X 轴旋转
             y = res["Y"].values
             z = res["Z"].values
             res["Y"] = y * cos_a - z * sin_a
             res["Z"] = y * sin_a + z * cos_a
         elif plane_type == "E/EL plane (X/Z)":
-            # 绕 Y 轴旋转
             x = res["X"].values
             z = res["Z"].values
             res["X"] = x * cos_a + z * sin_a
@@ -96,7 +93,6 @@ class TransformEngine:
         return res
 
 
-# 样式高亮函数
 def highlight_excess_error(val):
     try:
         if abs(float(val)) > 0.002:
@@ -106,7 +102,6 @@ def highlight_excess_error(val):
     return ""
 
 
-# PDF Report Generator
 class PDFReport(FPDF):
 
     def header(self):
@@ -712,11 +707,11 @@ if uploaded_raw is not None:
 
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
-                    
+
                     # ---------------------------------------------------------
-                    # 新增：集成图示中的高级 Transform（坐标变换）控制面板
+                    # 高级 Transform（坐标变换）控制面板（对应您提供的功能截图）
                     # ---------------------------------------------------------
-                    with st.expander("🌐 Advanced Transform Operations (Coordinate Systems, Translation, Rotation & Rollback)", expanded=False):
+                    with st.expander("🌐 Advanced Transform Operations (Set 0,0,0, Translate, Rotate & Rollback)", expanded=True):
                         st.write("### 🎛️ Transform Menu Operations")
                         
                         t_action = st.selectbox(
@@ -748,10 +743,9 @@ if uploaded_raw is not None:
                             cur_df = st.session_state["df_final_result"]
                             
                             if t_action == "Set to (0,0,0)":
-                                # 将第一个点或质心平移至 (0,0,0)
                                 centroid = cur_df[["X", "Y", "Z"]].mean().values
                                 st.session_state["df_final_result"] = TransformEngine.translate(cur_df, -centroid[0], -centroid[1], -centroid[2])
-                                st.success("Successfully set centroid/origin to (0,0,0).")
+                                st.success("Successfully set origin to (0,0,0).")
                             elif t_action == "Set to (100,100,100)":
                                 target = np.array([100.0, 100.0, 100.0])
                                 centroid = cur_df[["X", "Y", "Z"]].mean().values
@@ -810,10 +804,7 @@ if uploaded_raw is not None:
                                 use_container_width=True,
                             )
                         else:
-                            st.info(
-                                "No deviation data available (Design points not"
-                                " used or not fitted)."
-                            )
+                            st.info("No deviation data available.")
 
                     final_csv = (
                         st.session_state["df_final_result"]
@@ -1171,7 +1162,7 @@ if uploaded_raw is not None:
 
                     st.markdown("---")
                     st.subheader("📄 Comprehensive PDF Report Export")
-                    
+
                     include_dev_in_pdf = st.checkbox(
                         "Include '3. Deviation Analysis Report' in PDF",
                         value=True,
