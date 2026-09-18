@@ -55,10 +55,12 @@ class BestFitEngine:
         err["Total_Error"] = np.sqrt(
             err["Delta E"] ** 2 + err["Delta N"] ** 2 + err["Delta El"] ** 2
         )
+        # Ensure unique index to avoid Styler errors
+        if not err.index.is_unique:
+            err = err.loc[~err.index.duplicated(keep="first")]
         return err
 
 
-# 坐标变换与高级对齐引擎
 class TransformEngine:
 
     @staticmethod
@@ -103,10 +105,6 @@ class TransformEngine:
 
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points=None, target_z=0.0):
-        """
-        3D Plane Fit & Leveling (Least Squares SVD Plane Fitting + Rotation)
-        Fits a 3D plane to selected points (or all points if none selected) and rotates the point cloud so that the plane becomes horizontal.
-        """
         res = df.copy()
         x_col = "X/E" if "X/E" in res.columns else ("X" if "X" in res.columns else res.columns[1])
         y_col = "Y/N" if "Y/N" in res.columns else ("Y" if "Y" in res.columns else res.columns[2])
@@ -329,6 +327,7 @@ if uploaded_raw is not None:
             temp_d = st.session_state["df_design_edited"].dropna(subset=["Point"]).copy()
             if not temp_d.empty and "X/E" in temp_d.columns:
                 temp_d["Point"] = temp_d["Point"].astype(str).str.strip()
+                temp_d = temp_d.loc[~temp_d["Point"].duplicated(keep="first")]
                 temp_d.set_index("Point", inplace=True)
                 df_design = temp_d[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                 df_design.columns = ["X", "Y", "Z"]
@@ -338,6 +337,7 @@ if uploaded_raw is not None:
             temp_c = st.session_state["df_ctrl_edited"].dropna(subset=["Point"]).copy()
             if not temp_c.empty and "X/E" in temp_c.columns:
                 temp_c["Point"] = temp_c["Point"].astype(str).str.strip()
+                temp_c = temp_c.loc[~temp_c["Point"].duplicated(keep="first")]
                 temp_c.set_index("Point", inplace=True)
                 df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                 df_ctrl.columns = ["X", "Y", "Z"]
@@ -462,7 +462,12 @@ if uploaded_raw is not None:
                     st.markdown(f"#### Managing **{s_name}** (Rows {s_start+1} to {s_end})")
 
                     stn_raw_df = df_raw_final_check.iloc[s_start:s_end].copy()
-                    stn_indexed = stn_raw_df.set_index("Point")
+                    
+                    # Ensure unique index for indexing
+                    stn_indexed_prep = stn_raw_df.copy()
+                    stn_indexed_prep = stn_indexed_prep.loc[~stn_indexed_prep["Point"].duplicated(keep="first")]
+                    stn_indexed = stn_indexed_prep.set_index("Point")
+                    
                     stn_calc_indexed = stn_indexed[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                     stn_calc_indexed.columns = ["X", "Y", "Z"]
 
@@ -579,6 +584,9 @@ if uploaded_raw is not None:
 
             if len(st.session_state["station_fitted_dfs"]) == len(station_configs):
                 combined_df = pd.concat(list(st.session_state["station_fitted_dfs"].values()))
+                # Ensure unique index in combined dataframe
+                if not combined_df.index.is_unique:
+                    combined_df = combined_df.loc[~combined_df.index.duplicated(keep="first")]
 
                 if df_design is not None and not df_design.empty:
                     common_design = df_design.index.intersection(combined_df.index)
