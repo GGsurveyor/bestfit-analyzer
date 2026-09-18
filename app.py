@@ -106,7 +106,6 @@ class TransformEngine:
         res = df.copy()
         z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[-1])
         if selected_points and len(selected_points) > 0:
-            # 兼容 index 匹配或 Point 列匹配
             if res.index.name == "Point" or str(res.index.dtype) in ["object", "int64"]:
                 sub_df = res[res.index.isin(selected_points)]
             else:
@@ -567,7 +566,6 @@ if uploaded_raw is not None:
                             err_final = BestFitEngine.calculate_error(df_final_result.loc[active_design_pts], df_design.loc[active_design_pts])
                             st.session_state["err_step3"] = err_final
                             
-                            # 清除旧的 Step 4 调整状态
                             if "df_final_result" in st.session_state:
                                 del st.session_state["df_final_result"]
                             if "err_final" in st.session_state:
@@ -580,9 +578,6 @@ if uploaded_raw is not None:
                     st.session_state["df_step3_result"] = combined_df
                     st.info("ℹ️ Design Points not provided. Merged stations are ready for Step 3 preview or Step 4 adjustment.")
 
-                # -----------------------------------------------------------------
-                # 🌐 Step 3 默认自带的结果预览与偏差分析
-                # -----------------------------------------------------------------
                 if "df_step3_result" in st.session_state:
                     st.markdown("---")
                     st.subheader("📋 Step 3: Final Result Preview & Deviation Analysis")
@@ -657,7 +652,6 @@ if uploaded_raw is not None:
                                 res_tf = base_df_for_step4.copy()
                                 
                             st.session_state["df_final_result"] = res_tf
-                            # 如果有设计点，重新计算对应偏差
                             if df_design is not None and not df_design.empty:
                                 common_d_f = df_design.index.intersection(res_tf.index)
                                 if len(common_d_f) > 0:
@@ -665,7 +659,6 @@ if uploaded_raw is not None:
                             st.success("Successfully applied Step 4 transformation and generated custom analysis/preview!")
                         st.rerun()
 
-                # 只有在 Step 4 中点击过 Apply 并且存在 df_final_result 时，才显示 Step 4 的预览、偏差分析和下载
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
                     st.markdown("### 📊 Step 4: Post-Adjustment Result Preview & Deviation Analysis")
@@ -695,159 +688,124 @@ if uploaded_raw is not None:
                         mime="text/csv",
                     )
 
-                    st.markdown("---")
-                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (From Step 4 Result)")
+                # =================================================================
+                # 🌐 NEW: CAD Layout Preview & DXF/SCR Source Selector (From Step 3 or Step 4)
+                # =================================================================
+                st.markdown("---")
+                st.subheader("📐 CAD Layout Preview & DXF/SCR Converter")
 
-                    dxf_df = st.session_state["df_final_result"].reset_index()
-                    dxf_df.columns = ["ID", "X", "Y", "Z"]
+                cad_source_choice = st.radio(
+                    "Select Data Source for CAD Preview & Export",
+                    ["Step 3 Result (Merged Stations After BestFit)", "Step 4 Result (Post-Adjustment Merged Result)"],
+                    index=1 if "df_final_result" in st.session_state else 0,
+                    key="cad_source_radio"
+                )
 
-                    st.write("### 🛠️ Step A: Label Display Settings")
-                    display_options = st.multiselect(
-                        "Select what to display in the label:",
-                        ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
-                        default=["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
-                        key="dxf_display_options",
-                    )
-
-                    with st.expander("⚙️ Advanced Settings (Heights, Offsets, Colors & Point Style)", expanded=False):
-                        decimal_places = st.selectbox("Decimal Places for Coordinates / EL", [3, 4], index=0, key="dxf_dec")
-                        point_color = st.selectbox("Point Symbol Color", list(CAD_COLORS.keys()), index=0, key="dxf_pt_color")
-
-                        st.markdown("---")
-                        st.write("🎛️ **Individual Field Configurations**")
-                        field_configs = {}
-                        for field in ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"]:
-                            if field in display_options:
-                                st.markdown(f"**📌 {field} Configuration**")
-                                c1, c2, c3, c4 = st.columns(4)
-                                with c1:
-                                    h_val = st.number_input(f"{field} Height", value=1.0, step=0.1, key=f"h_{field}")
-                                with c2:
-                                    ox_val = st.number_input(f"{field} X Offset", value=0.5, step=0.1, key=f"ox_{field}")
-                                with c3:
-                                    oy_val = st.number_input(f"{field} Y Offset", value=0.5, step=0.1, key=f"oy_{field}")
-                                with c4:
-                                    default_c_idx = 2 if field == "Elevation (EL)" else 0
-                                    c_val = st.selectbox(f"{field} Color", list(CAD_COLORS.keys()), index=default_c_idx, key=f"c_{field}")
-
-                                field_configs[field] = {
-                                    "height": h_val,
-                                    "offset_x": ox_val,
-                                    "offset_y": oy_val,
-                                    "color_name": CAD_COLORS[c_val][0],
-                                    "color_idx": CAD_COLORS[c_val][1],
-                                }
-
-                        st.markdown("---")
-                        st.write("📍 **CAD Point Symbol Settings**")
-                        point_style_options = {
-                            "Dot (.)": 0,
-                            "Plus (+)": 2,
-                            "X Shape": 3,
-                            "Circle (○)": 32,
-                            "Square (□)": 64,
-                            "Circle & Cross (◎)": 34,
-                        }
-                        pdmode_val = st.selectbox("Point Symbol Type", list(point_style_options.keys()), index=5, key="dxf_pdmode")
-                        pdsize_val = st.number_input("Point Size", value=1.5, step=0.2, key="dxf_pdsize")
-
-                    st.markdown("---")
-                    st.markdown("### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom & Pan)")
-
-                    valid_xs, valid_ys = [], []
-                    for _, row in dxf_df.iterrows():
-                        try:
-                            valid_xs.append(float(row["X"]))
-                            valid_ys.append(float(row["Y"]))
-                        except:
-                            continue
-
-                    if valid_xs and valid_ys:
-                        fig = go.Figure()
-                        fig.add_trace(
-                            go.Scatter(
-                                x=dxf_df["X"],
-                                y=dxf_df["Y"],
-                                mode="markers",
-                                marker=dict(color=CAD_COLORS[point_color][0], size=max(6, pdsize_val * 6), symbol="circle"),
-                                text=dxf_df["ID"],
-                                name="Points",
-                                hoverinfo="text+x+y",
-                            )
-                        )
-
-                        for idx, row in dxf_df.iterrows():
-                            try:
-                                x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
-                                id_val = str(row["ID"])
-                                fmt = f"{{:.{decimal_places}f}}"
-
-                                line_spacing_offset = 0.0
-                                for field in display_options:
-                                    if field not in field_configs:
-                                        continue
-                                    cfg = field_configs[field]
-
-                                    if field == "ID":
-                                        text_content = id_val
-                                    elif field == "X Coordinate":
-                                        text_content = f"X: {fmt.format(x_val)}"
-                                    elif field == "Y Coordinate":
-                                        text_content = f"Y: {fmt.format(y_val)}"
-                                    else:
-                                        text_content = f"EL: {fmt.format(z_val)}"
-
-                                    fx = x_val + cfg["offset_x"]
-                                    fy = y_val + cfg["offset_y"] - line_spacing_offset
-
-                                    fig.add_annotation(
-                                        x=fx,
-                                        y=fy,
-                                        text=text_content,
-                                        showarrow=False,
-                                        font=dict(color=cfg["color_name"], size=max(10, cfg["height"] * 9)),
-                                        xanchor="left",
-                                        yanchor="bottom",
-                                    )
-                                    line_spacing_offset += cfg["height"] * 0.8
-                            except:
-                                continue
-
-                        fig.update_layout(
-                            paper_bgcolor="black",
-                            plot_bgcolor="black",
-                            xaxis_title="X Coordinate",
-                            yaxis_title="Y Coordinate",
-                            xaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)"),
-                            yaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)", scaleanchor="x", scaleratio=1),
-                            margin=dict(l=20, r=20, t=20, b=20),
-                            height=700,
-                            hovermode="closest",
-                        )
-
-                        st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+                if "Step 3" in cad_source_choice:
+                    if "df_step3_result" in st.session_state:
+                        active_cad_df = st.session_state["df_step3_result"]
+                        active_err_df = st.session_state.get("err_step3", pd.DataFrame())
+                        source_label_str = "Step 3 Result"
                     else:
-                        st.warning("No coordinate values detected.")
+                        active_cad_df = combined_df
+                        active_err_df = pd.DataFrame()
+                        source_label_str = "Combined Stations (Default)"
+                else:
+                    if "df_final_result" in st.session_state:
+                        active_cad_df = st.session_state["df_final_result"]
+                        active_err_df = st.session_state.get("err_final", pd.DataFrame())
+                        source_label_str = "Step 4 Result"
+                    else:
+                        st.warning("⚠️ Step 4 Result not found yet. Defaulting to Step 3 Result. Please click 'Apply Transform' in Step 4 to generate Step 4 result.")
+                        active_cad_df = st.session_state.get("df_step3_result", combined_df)
+                        active_err_df = st.session_state.get("err_step3", pd.DataFrame())
+                        source_label_str = "Step 3 Result (Fallback)"
 
-                    doc = ezdxf.new(dxfversion="R2010")
-                    msp = doc.modelspace()
-                    doc.header["$PDMODE"] = point_style_options[pdmode_val]
-                    doc.header["$PDSIZE"] = pdsize_val
+                st.info(f"📍 Currently previewing and exporting using: **{source_label_str}**")
 
-                    scr_lines = ["ucs W", "Osnapcoord 1"]
+                dxf_df = active_cad_df.reset_index()
+                dxf_df.columns = ["ID", "X", "Y", "Z"]
+
+                st.write("### 🛠️ Step A: Label Display Settings")
+                display_options = st.multiselect(
+                    "Select what to display in the label:",
+                    ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
+                    default=["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"],
+                    key="dxf_display_options",
+                )
+
+                with st.expander("⚙️ Advanced Settings (Heights, Offsets, Colors & Point Style)", expanded=False):
+                    decimal_places = st.selectbox("Decimal Places for Coordinates / EL", [3, 4], index=0, key="dxf_dec")
+                    point_color = st.selectbox("Point Symbol Color", list(CAD_COLORS.keys()), index=0, key="dxf_pt_color")
+
+                    st.markdown("---")
+                    st.write("🎛️ **Individual Field Configurations**")
+                    field_configs = {}
+                    for field in ["ID", "X Coordinate", "Y Coordinate", "Elevation (EL)"]:
+                        if field in display_options:
+                            st.markdown(f"**📌 {field} Configuration**")
+                            c1, c2, c3, c4 = st.columns(4)
+                            with c1:
+                                h_val = st.number_input(f"{field} Height", value=1.0, step=0.1, key=f"h_{field}")
+                            with c2:
+                                ox_val = st.number_input(f"{field} X Offset", value=0.5, step=0.1, key=f"ox_{field}")
+                            with c3:
+                                oy_val = st.number_input(f"{field} Y Offset", value=0.5, step=0.1, key=f"oy_{field}")
+                            with c4:
+                                default_c_idx = 2 if field == "Elevation (EL)" else 0
+                                c_val = st.selectbox(f"{field} Color", list(CAD_COLORS.keys()), index=default_c_idx, key=f"c_{field}")
+
+                            field_configs[field] = {
+                                "height": h_val,
+                                "offset_x": ox_val,
+                                "offset_y": oy_val,
+                                "color_name": CAD_COLORS[c_val][0],
+                                "color_idx": CAD_COLORS[c_val][1],
+                            }
+
+                    st.markdown("---")
+                    st.write("📍 **CAD Point Symbol Settings**")
+                    point_style_options = {
+                        "Dot (.)": 0,
+                        "Plus (+)": 2,
+                        "X Shape": 3,
+                        "Circle (○)": 32,
+                        "Square (□)": 64,
+                        "Circle & Cross (◎)": 34,
+                    }
+                    pdmode_val = st.selectbox("Point Symbol Type", list(point_style_options.keys()), index=5, key="dxf_pdmode")
+                    pdsize_val = st.number_input("Point Size", value=1.5, step=0.2, key="dxf_pdsize")
+
+                st.markdown("---")
+                st.markdown("### 🖥️ Live Layout Preview (Supports Mouse Roller Zoom & Pan)")
+
+                valid_xs, valid_ys = [], []
+                for _, row in dxf_df.iterrows():
+                    try:
+                        valid_xs.append(float(row["X"]))
+                        valid_ys.append(float(row["Y"]))
+                    except:
+                        continue
+
+                if valid_xs and valid_ys:
+                    fig = go.Figure()
+                    fig.add_trace(
+                        go.Scatter(
+                            x=dxf_df["X"],
+                            y=dxf_df["Y"],
+                            mode="markers",
+                            marker=dict(color=CAD_COLORS[point_color][0], size=max(6, pdsize_val * 6), symbol="circle"),
+                            text=dxf_df["ID"],
+                            name="Points",
+                            hoverinfo="text+x+y",
+                        )
+                    )
 
                     for idx, row in dxf_df.iterrows():
                         try:
                             x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
                             id_val = str(row["ID"])
                             fmt = f"{{:.{decimal_places}f}}"
-
-                            msp.add_point((x_val, y_val, z_val), dxfattribs={"color": CAD_COLORS[point_color][1]})
-
-                            scr_lines.append("SPHERE")
-                            scr_lines.append(f"{x_val:.7f},{y_val:.7f},{z_val:.7f}")
-                            scr_lines.append("D")
-                            scr_lines.append(f"{pdsize_val * 0.01:.5f}")
 
                             line_spacing_offset = 0.0
                             for field in display_options:
@@ -867,60 +825,129 @@ if uploaded_raw is not None:
                                 fx = x_val + cfg["offset_x"]
                                 fy = y_val + cfg["offset_y"] - line_spacing_offset
 
-                                msp.add_text(
-                                    text_content,
-                                    dxfattribs={"insert": (fx, fy, z_val), "height": cfg["height"], "color": cfg["color_idx"]},
+                                fig.add_annotation(
+                                    x=fx,
+                                    y=fy,
+                                    text=text_content,
+                                    showarrow=False,
+                                    font=dict(color=cfg["color_name"], size=max(10, cfg["height"] * 9)),
+                                    xanchor="left",
+                                    yanchor="bottom",
                                 )
-
-                                scr_lines.append(f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f} {cfg['height']:.4f} 0 {text_content}")
-                                line_spacing_offset += cfg["height"] * 1.3
+                                line_spacing_offset += cfg["height"] * 0.8
                         except:
                             continue
 
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp:
-                        doc.saveas(tmp.name)
-                        with open(tmp.name, "rb") as f:
-                            dxf_data = f.read()
-                    os.unlink(tmp.name)
-
-                    scr_content = "\n".join(scr_lines)
-                    scr_data = scr_content.encode("utf-8")
-
-                    col_dl1, col_dl2 = st.columns(2)
-                    with col_dl1:
-                        st.download_button(
-                            "⬇️ Download Step 4 DXF File",
-                            data=dxf_data,
-                            file_name="step4_adjusted_station_layout.dxf",
-                            mime="application/dxf",
-                            use_container_width=True,
-                        )
-                    with col_dl2:
-                        st.download_button(
-                            "⬇️ Download Step 4 AutoCAD Script (.SCR)",
-                            data=scr_data,
-                            file_name="step4_adjusted_station_layout.scr",
-                            mime="text/plain",
-                            use_container_width=True,
-                        )
-
-                    st.markdown("---")
-                    st.subheader("📄 Comprehensive PDF Report Export (Step 4)")
-
-                    include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
-
-                    pdf_bytes = generate_pdf_report(
-                        st.session_state["df_final_result"],
-                        st.session_state.get("err_final", pd.DataFrame()),
-                        include_deviation=include_dev_in_pdf
+                    fig.update_layout(
+                        paper_bgcolor="black",
+                        plot_bgcolor="black",
+                        xaxis_title="X Coordinate",
+                        yaxis_title="Y Coordinate",
+                        xaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)"),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(50,50,50,0.8)", zeroline=True, zerolinecolor="rgba(100,100,100,0.8)", scaleanchor="x", scaleratio=1),
+                        margin=dict(l=20, r=20, t=20, b=20),
+                        height=700,
+                        hovermode="closest",
                     )
+
+                    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+                else:
+                    st.warning("No coordinate values detected.")
+
+                doc = ezdxf.new(dxfversion="R2010")
+                msp = doc.modelspace()
+                doc.header["$PDMODE"] = point_style_options[pdmode_val]
+                doc.header["$PDSIZE"] = pdsize_val
+
+                scr_lines = ["ucs W", "Osnapcoord 1"]
+
+                for idx, row in dxf_df.iterrows():
+                    try:
+                        x_val, y_val, z_val = float(row["X"]), float(row["Y"]), float(row["Z"])
+                        id_val = str(row["ID"])
+                        fmt = f"{{:.{decimal_places}f}}"
+
+                        msp.add_point((x_val, y_val, z_val), dxfattribs={"color": CAD_COLORS[point_color][1]})
+
+                        scr_lines.append("SPHERE")
+                        scr_lines.append(f"{x_val:.7f},{y_val:.7f},{z_val:.7f}")
+                        scr_lines.append("D")
+                        scr_lines.append(f"{pdsize_val * 0.01:.5f}")
+
+                        line_spacing_offset = 0.0
+                        for field in display_options:
+                            if field not in field_configs:
+                                continue
+                            cfg = field_configs[field]
+
+                            if field == "ID":
+                                text_content = id_val
+                            elif field == "X Coordinate":
+                                text_content = f"X: {fmt.format(x_val)}"
+                            elif field == "Y Coordinate":
+                                text_content = f"Y: {fmt.format(y_val)}"
+                            else:
+                                text_content = f"EL: {fmt.format(z_val)}"
+
+                            fx = x_val + cfg["offset_x"]
+                            fy = y_val + cfg["offset_y"] - line_spacing_offset
+
+                            msp.add_text(
+                                text_content,
+                                dxfattribs={"insert": (fx, fy, z_val), "height": cfg["height"], "color": cfg["color_idx"]},
+                            )
+
+                            scr_lines.append(f"-TEXT {fx:.6f},{fy:.6f},{z_val:.6f} {cfg['height']:.4f} 0 {text_content}")
+                            line_spacing_offset += cfg["height"] * 1.3
+                    except:
+                        continue
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp:
+                    doc.saveas(tmp.name)
+                    with open(tmp.name, "rb") as f:
+                        dxf_data = f.read()
+                os.unlink(tmp.name)
+
+                scr_content = "\n".join(scr_lines)
+                scr_data = scr_content.encode("utf-8")
+
+                file_suffix_tag = "step3" if "Step 3" in cad_source_choice else "step4"
+
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
                     st.download_button(
-                        label="📥 Download Step 4 Comprehensive PDF Report",
-                        data=pdf_bytes,
-                        file_name="Step4_BestFit_Comprehensive_Report.pdf",
-                        mime="application/pdf",
+                        f"⬇️ Download DXF File ({source_label_str})",
+                        data=dxf_data,
+                        file_name=f"{file_suffix_tag}_station_layout.dxf",
+                        mime="application/dxf",
                         use_container_width=True,
                     )
+                with col_dl2:
+                    st.download_button(
+                        f"⬇️ Download AutoCAD Script (.SCR) ({source_label_str})",
+                        data=scr_data,
+                        file_name=f"{file_suffix_tag}_station_layout.scr",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+
+                st.markdown("---")
+                st.subheader(f"📄 Comprehensive PDF Report Export ({source_label_str})")
+
+                include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
+
+                pdf_bytes = generate_pdf_report(
+                    active_cad_df,
+                    active_err_df,
+                    include_deviation=include_dev_in_pdf
+                )
+                st.download_button(
+                    label=f"📥 Download Comprehensive PDF Report ({source_label_str})",
+                    data=pdf_bytes,
+                    file_name=f"{file_suffix_tag}_BestFit_Comprehensive_Report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
             else:
                 st.info("👉 Please complete the individual steps for **all** defined stations in Step 2 before proceeding.")
 
