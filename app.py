@@ -104,11 +104,18 @@ class TransformEngine:
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points, target_z=0.0):
         res = df.copy()
-        z_col = "Z/EL" if "Z/EL" in res.columns else "Z"
+        z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[-1])
         if selected_points and len(selected_points) > 0:
-            current_mean_z = res.loc[selected_points, z_col].mean()
-            delta_z = target_z - current_mean_z
-            res[z_col] += delta_z
+            # 兼容 index 匹配或 Point 列匹配
+            if res.index.name == "Point" or str(res.index.dtype) in ["object", "int64"]:
+                sub_df = res[res.index.isin(selected_points)]
+            else:
+                sub_df = res[res["Point"].isin(selected_points)]
+                
+            if not sub_df.empty:
+                current_mean_z = sub_df[z_col].mean()
+                delta_z = target_z - current_mean_z
+                res[z_col] += delta_z
         return res
 
 
@@ -163,9 +170,9 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
     pdf.set_font("helvetica", "", 9)
     for idx, row in df_final.iterrows():
         pdf.cell(50, 6, str(idx), 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['X']):.4f}", 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['Y']):.4f}", 1, 0, "C")
-        pdf.cell(45, 6, f"{float(row['Z']):.4f}", 1, 1, "C")
+        pdf.cell(45, 6, f"{float(row['X'] if 'X' in row else row.iloc[0]):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Y'] if 'Y' in row else row.iloc[1]):.4f}", 1, 0, "C")
+        pdf.cell(45, 6, f"{float(row['Z'] if 'Z' in row else row.iloc[2]):.4f}", 1, 1, "C")
 
     pdf.ln(6)
 
@@ -560,7 +567,7 @@ if uploaded_raw is not None:
                             err_final = BestFitEngine.calculate_error(df_final_result.loc[active_design_pts], df_design.loc[active_design_pts])
                             st.session_state["err_step3"] = err_final
                             
-                            # 清除旧的 Step 4 调整状态（每次在Step3重新计算后需重新选择Step4调整）
+                            # 清除旧的 Step 4 调整状态
                             if "df_final_result" in st.session_state:
                                 del st.session_state["df_final_result"]
                             if "err_final" in st.session_state:
@@ -624,7 +631,7 @@ if uploaded_raw is not None:
                     selected_final_pts = []
                     
                     if t_action_final == "Fit to horizontal plane":
-                        selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit", options=combined_pts, key="final_tr_pts")
+                        selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit (e.g. 1.1 to 1.52)", options=combined_pts, key="final_tr_pts")
                         target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
                     elif t_action_final == "Translate (Delta)":
                         f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
