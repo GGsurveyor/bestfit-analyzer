@@ -104,61 +104,76 @@ class TransformEngine:
 
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points=None, target_z=0.0):
+        """
+        专业级 3D 最佳拟合平面调平引擎：
+        1. 严格按用户指定的点集子范围（如 1.1 到 1.52）提取用于拟合的点云。
+        2. 采用 SVD（奇异值分解 / 总体最小二乘法）计算空间最佳拟合平面的法向量。
+        3. 以所选点集的几何中心 (Centroid) 作为旋转中心（Pivot），进行严格的 3D 刚体旋转，
+           将平面法向量旋转对齐至垂直 Z 轴 [0, 0, 1]，消除无效平移偏差。
+        4. 将拟合平面的平均高程平移对齐至目标高程 (Target Z，默认 0.0)。
+        """
         res = df.copy()
         x_col = "X/E" if "X/E" in res.columns else ("X" if "X" in res.columns else res.columns[1])
         y_col = "Y/N" if "Y/N" in res.columns else ("Y" if "Y" in res.columns else res.columns[2])
         z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[3])
         p_col = res.columns[0]
 
+        # 1. 严格筛选参与拟合的目标点子集
         if selected_points is not None and len(selected_points) > 0:
-            sub = res[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
-            if sub.empty:
-                fit_pts = res[[x_col, y_col, z_col]].values.astype(float)
-            else:
+            cleaned_selected = [str(p).strip() for p in selected_points]
+            sub = res[res[p_col].astype(str).str.strip().isin(cleaned_selected)]
+            if not sub.empty:
                 fit_pts = sub[[x_col, y_col, z_col]].values.astype(float)
+            else:
+                fit_pts = res[[x_col, y_col, z_col]].values.astype(float)
         else:
             fit_pts = res[[x_col, y_col, z_col]].values.astype(float)
 
         all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
-        
-        # Least squares plane fit: Z = a*X + b*Y + c
-        X_vals = fit_pts[:, 0]
-        Y_vals = fit_pts[:, 1]
-        Z_vals = fit_pts[:, 2]
-        
-        A = np.column_stack([X_vals, Y_vals, np.ones_like(X_vals)])
-        coef, _, _, _ = np.linalg.lstsq(A, Z_vals, rcond=None)
-        a, b, c = coef
-        
-        angle_x = np.arctan(b)
-        angle_y = np.arctan(a)
-        
-        Rx = np.array([
-            [1, 0, 0],
-            [0, np.cos(-angle_x), -np.sin(-angle_x)],
-            [0, np.sin(-angle_x), np.cos(-angle_x)]
-        ])
-        Ry = np.array([
-            [np.cos(angle_y), 0, np.sin(angle_y)],
-            [0, 1, 0],
-            [-np.sin(angle_y), 0, np.cos(angle_y)]
-        ])
-        
-        R = np.dot(Rx, Ry)
-        
+
+        # 2. 计算所选点集的几何中心 (Centroid) 作为旋转中心
         centroid = np.mean(fit_pts, axis=0)
+
+        # 3. 使用 SVD（奇异值分解）进行正交距离平面拟合（Total Least Squares）
+        centered_fit_pts = fit_pts - centroid
+        U, S, Vt = np.linalg.svd(centered_fit_pts)
+        normal = Vt[2, :]  # 最小奇异值对应的右奇异向量即为平面法向量
+        
+        # 确保法向量朝上（Z 分量为正）
+        if normal[2] < 0:
+            normal = -normal
+
+        # 4. 计算将法向量旋转对齐至 [0, 0, 1] 的 3D 旋转矩阵 R
+        target = np.array([0, 0, 1])
+        v = np.cross(normal, target)
+        s_norm = np.linalg.norm(v)
+        c_dot = np.dot(normal, target)
+
+        if s_norm < 1e-6:
+            R = np.eye(3)
+        else:
+            vx = np.array([
+                [0, -v[2], v[1]],
+                [v[2], 0, -v[0]],
+                [-v[1], v[0], 0]
+            ])
+            R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c_dot) / (s_norm ** 2))
+
+        # 5. 对全部点云应用以几何中心为原点的旋转：P_new = R @ (P - Centroid) + Centroid
         centered_all = all_xyz - centroid
         rotated = np.dot(centered_all, R.T) + centroid
-        
+
+        # 6. 计算旋转后拟合点集的平均高程，并将其整体平移对齐至目标 Z（target_z）
         if selected_points is not None and len(selected_points) > 0 and not sub.empty:
-            rotated_sub = np.dot(fit_pts - centroid, R.T) + centroid
-            mean_z_rot = np.mean(rotated_sub[:, 2])
+            sub_mask = res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])
+            mean_z_rot = np.mean(rotated[sub_mask, 2])
         else:
             mean_z_rot = np.mean(rotated[:, 2])
-            
+
         delta_z = target_z - mean_z_rot
         rotated[:, 2] += delta_z
-        
+
+        # 7. 写回结果 DataFrame
         res[x_col] = rotated[:, 0]
         res[y_col] = rotated[:, 1]
         res[z_col] = rotated[:, 2]
