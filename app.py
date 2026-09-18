@@ -58,15 +58,15 @@ class BestFitEngine:
         return err
 
 
-# 坐标变换与高级对齐引擎（新增 Fit to horizontal plane 与 Align in Plane 针对指定点选择功能）
+# 坐标变换与高级对齐引擎（支持点位多选进行 Fit to horizontal plane 与 Align in Plane）
 class TransformEngine:
 
     @staticmethod
     def translate(df, dx, dy, dz):
         res = df.copy()
-        res["X"] += dx
-        res["Y"] += dy
-        res["Z"] += dz
+        res["X/E"] += dx
+        res["Y/N"] += dy
+        res["Z/EL"] += dz
         return res
 
     @staticmethod
@@ -76,30 +76,30 @@ class TransformEngine:
         cos_a, sin_a = np.cos(rad), np.sin(rad)
 
         if plane_type == "E/N plane (X/Y)":
-            x = res["X"].values
-            y = res["Y"].values
-            res["X"] = x * cos_a - y * sin_a
-            res["Y"] = x * sin_a + y * cos_a
+            x = res["X/E"].values
+            y = res["Y/N"].values
+            res["X/E"] = x * cos_a - y * sin_a
+            res["Y/N"] = x * sin_a + y * cos_a
         elif plane_type == "N/EL plane (Y/Z)":
-            y = res["Y"].values
-            z = res["Z"].values
-            res["Y"] = y * cos_a - z * sin_a
-            res["Z"] = y * sin_a + z * cos_a
+            y = res["Y/N"].values
+            z = res["Z/EL"].values
+            res["Y/N"] = y * cos_a - z * sin_a
+            res["Z/EL"] = y * sin_a + z * cos_a
         elif plane_type == "E/EL plane (X/Z)":
-            x = res["X"].values
-            z = res["Z"].values
-            res["X"] = x * cos_a + z * sin_a
-            res["Z"] = -x * sin_a + z * cos_a
+            x = res["X/E"].values
+            z = res["Z/EL"].values
+            res["X/E"] = x * cos_a + z * sin_a
+            res["Z/EL"] = -x * sin_a + z * cos_a
         return res
 
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points, target_z=0.0):
-        """将指定点集的高程 (Z/EL) 拟合调平至目标高程平面"""
+        """将指定点集的高程拟合调平至目标高程平面"""
         res = df.copy()
         if selected_points and len(selected_points) > 0:
-            current_mean_z = res.loc[selected_points, "Z"].mean()
+            current_mean_z = res.loc[selected_points, "Z/EL"].mean()
             delta_z = target_z - current_mean_z
-            res["Z"] += delta_z
+            res["Z/EL"] += delta_z
         return res
 
     @staticmethod
@@ -107,7 +107,7 @@ class TransformEngine:
         """在指定的平面/轴向（如 X/Y, X/Z, Y/Z）上对齐所选点"""
         res = df.copy()
         if selected_points and len(selected_points) >= 2:
-            # 以所选点的几何中心或基准进行对齐/正交化处理
+            # 可以在此实现基于所选点的平面正交对齐逻辑
             pass
         return res
 
@@ -370,10 +370,6 @@ if uploaded_raw is not None:
                 df_ctrl = temp_c[["X/E", "Y/N", "Z/EL"]].astype(float).copy()
                 df_ctrl.columns = ["X", "Y", "Z"]
 
-        df_raw = st.session_state["df_raw_edited"].copy()
-        df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
-        total_rows = len(df_raw)
-
         st.markdown("---")
         col_row2_1, col_row2_2 = st.columns(2)
 
@@ -395,12 +391,11 @@ if uploaded_raw is not None:
                 key="raw_data_editor",
             )
             st.session_state["df_raw_edited"] = edited_raw_df
-            df_raw = st.session_state["df_raw_edited"].copy()
-            df_raw["Point"] = df_raw["Point"].astype(str).str.strip()
-            total_rows = len(df_raw)
 
         with col_row2_2:
             st.subheader("🛠️ Step 1: Split Ranges")
+            df_raw_current = st.session_state["df_raw_edited"].copy()
+            total_rows = len(df_raw_current)
             st.info(f"Total rows in Raw Data: **{total_rows}**.")
 
             num_stations = st.number_input(
@@ -429,6 +424,101 @@ if uploaded_raw is not None:
                 hide_index=True,
                 key="station_ranges_editor",
             )
+
+        # -----------------------------------------------------------------
+        # 🌐 独立前置区域：原始数据刚导入及编辑后的全局坐标变换与对齐（支持多选点位）
+        # -----------------------------------------------------------------
+        with st.expander("🌐 Global Pre-Transform & Alignment Operations (Fit to Horizontal Plane, Align in Plane, Translate & Rotate)", expanded=False):
+            st.write("### 🎛️ Raw Data Pre-Processing & Custom Point Selection")
+            
+            t_action = st.selectbox(
+                "Select Transform Action for Raw Data",
+                [
+                    "None",
+                    "Set to (0,0,0)",
+                    "Set to (100,100,100)",
+                    "Custom Coord Set (Translate by delta)",
+                    "Fit to horizontal plane",
+                    "Align in X/X Plane",
+                    "Rotate E/N plane (X/Y)",
+                    "Rotate N/EL plane (Y/Z)",
+                    "Rotate E/EL plane (X/Z)",
+                    "Rollback / Reset Raw Data"
+                ],
+                key="global_transform_menu_action"
+            )
+            
+            # 获取当前 Raw Data 的 Point ID 列表供多选
+            raw_point_ids = list(st.session_state["df_raw_edited"]["Point"].astype(str).str.strip())
+            selected_global_pts = []
+            
+            if t_action in ["Fit to horizontal plane", "Align in X/X Plane"]:
+                st.info("📌 请勾选需要参与该对齐/拟合计算的目标点（可多选）：")
+                selected_global_pts = st.multiselect(
+                    "Select Target Points for Global Calculation",
+                    options=raw_point_ids,
+                    default=raw_point_ids[:min(3, len(raw_point_ids))],
+                    key="global_tr_selected_pts"
+                )
+                if t_action == "Fit to horizontal plane":
+                    target_z_input = st.number_input("Target Horizontal Plane Elevation (Z)", value=0.0, step=0.01, key="global_tr_target_z")
+                elif t_action == "Align in X/X Plane":
+                    plane_axis_choice = st.selectbox("Select Alignment Plane", ["X/Y Plane", "X/Z Plane", "Y/Z Plane"], key="global_tr_plane_axis")
+            
+            elif t_action == "Custom Coord Set (Translate by delta)":
+                c_dx = st.number_input("Delta X/E", value=0.0, step=1.0, key="global_tr_dx")
+                c_dy = st.number_input("Delta Y/N", value=0.0, step=1.0, key="global_tr_dy")
+                c_dz = st.number_input("Delta Z/EL", value=0.0, step=1.0, key="global_tr_dz")
+            elif "Rotate" in t_action:
+                rot_angle = st.number_input("Rotation Angle (Degrees)", value=0.0, step=0.5, key="global_tr_angle")
+                
+            if st.button("Apply Transform to Raw Data", key="apply_global_transform_btn"):
+                if "original_raw_df" not in st.session_state:
+                    st.session_state["original_raw_df"] = st.session_state["df_raw_edited"].copy()
+                    
+                cur_df = st.session_state["df_raw_edited"].copy()
+                
+                if t_action == "Set to (0,0,0)":
+                    centroid_x = cur_df["X/E"].mean()
+                    centroid_y = cur_df["Y/N"].mean()
+                    centroid_z = cur_df["Z/EL"].mean()
+                    st.session_state["df_raw_edited"] = TransformEngine.translate(cur_df, -centroid_x, -centroid_y, -centroid_z)
+                    st.success("Successfully set origin to (0,0,0).")
+                elif t_action == "Set to (100,100,100)":
+                    centroid_x = cur_df["X/E"].mean()
+                    centroid_y = cur_df["Y/N"].mean()
+                    centroid_z = cur_df["Z/EL"].mean()
+                    st.session_state["df_raw_edited"] = TransformEngine.translate(cur_df, 100.0 - centroid_x, 100.0 - centroid_y, 100.0 - centroid_z)
+                    st.success("Successfully translated coordinates to target (100,100,100).")
+                elif t_action == "Custom Coord Set (Translate by delta)":
+                    st.session_state["df_raw_edited"] = TransformEngine.translate(cur_df, c_dx, c_dy, c_dz)
+                    st.success(f"Successfully translated by DX:{c_dx}, DY:{c_dy}, DZ:{c_dz}.")
+                elif t_action == "Fit to horizontal plane":
+                    if not selected_global_pts:
+                        st.warning("Please select at least one point for horizontal plane fitting.")
+                    else:
+                        st.session_state["df_raw_edited"] = TransformEngine.fit_to_horizontal_plane(cur_df, selected_global_pts, target_z_input)
+                        st.success(f"Successfully fitted selected points to horizontal plane at Z = {target_z_input}.")
+                elif t_action == "Align in X/X Plane":
+                    if not selected_global_pts:
+                        st.warning("Please select points for alignment.")
+                    else:
+                        st.session_state["df_raw_edited"] = TransformEngine.align_in_plane(cur_df, selected_global_pts, plane_axis_choice)
+                        st.success(f"Successfully aligned selected points in {plane_axis_choice}.")
+                elif "Rotate E/N plane" in t_action:
+                    st.session_state["df_raw_edited"] = TransformEngine.rotate_plane(cur_df, "E/N plane (X/Y)", rot_angle)
+                    st.success(f"Rotated E/N plane by {rot_angle} degrees.")
+                elif "Rotate N/EL plane" in t_action:
+                    st.session_state["df_raw_edited"] = TransformEngine.rotate_plane(cur_df, "N/EL plane (Y/Z)", rot_angle)
+                    st.success(f"Rotated N/EL plane by {rot_angle} degrees.")
+                elif "Rotate E/EL plane" in t_action:
+                    st.session_state["df_raw_edited"] = TransformEngine.rotate_plane(cur_df, "E/EL plane (X/Z)", rot_angle)
+                    st.success(f"Rotated E/EL plane by {rot_angle} degrees.")
+                elif "Rollback" in t_action:
+                    if "original_raw_df" in st.session_state:
+                        st.session_state["df_raw_edited"] = st.session_state["original_raw_df"].copy()
+                        st.success("Successfully rolled back to original raw data.")
+                st.rerun()
 
         station_configs = {}
         valid_ranges = True
@@ -460,6 +550,9 @@ if uploaded_raw is not None:
 
             tabs = st.tabs(list(station_configs.keys()))
 
+            df_raw_final_check = st.session_state["df_raw_edited"].copy()
+            df_raw_final_check["Point"] = df_raw_final_check["Point"].astype(str).str.strip()
+
             for idx, (s_name, (s_start, s_end)) in enumerate(
                 station_configs.items()
             ):
@@ -469,7 +562,7 @@ if uploaded_raw is not None:
                         f" {s_end})"
                     )
 
-                    stn_raw_df = df_raw.iloc[s_start:s_end].copy()
+                    stn_raw_df = df_raw_final_check.iloc[s_start:s_end].copy()
                     stn_indexed = stn_raw_df.set_index("Point")
                     stn_calc_indexed = stn_indexed[
                         ["X/E", "Y/N", "Z/EL"]
@@ -726,100 +819,6 @@ if uploaded_raw is not None:
 
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
-
-                    # ---------------------------------------------------------
-                    # 高级 Transform（坐标变换、Fit to horizontal plane 与 Align in Plane 选项）
-                    # ---------------------------------------------------------
-                    with st.expander("🌐 Advanced Transform Operations (Fit to Horizontal Plane, Align in Plane, Translate & Rotate)", expanded=True):
-                        st.write("### 🎛️ Transform Menu & Target Point Selection")
-                        
-                        t_action = st.selectbox(
-                            "Select Transform Action",
-                            [
-                                "None",
-                                "Set to (0,0,0)",
-                                "Set to (100,100,100)",
-                                "Custom Coord Set (Translate by delta)",
-                                "Fit to horizontal plane",
-                                "Align in X/X Plane",
-                                "Rotate E/N plane (X/Y)",
-                                "Rotate N/EL plane (Y/Z)",
-                                "Rotate E/EL plane (X/Z)",
-                                "Rollback / Reset Original Results"
-                            ],
-                            key="transform_menu_action"
-                        )
-                        
-                        # 针对需要选择点位的功能，动态提供多选框让用户自己选择需要哪些坐标/点
-                        all_point_ids = list(st.session_state["df_final_result"].index)
-                        selected_transform_pts = []
-                        
-                        if t_action in ["Fit to horizontal plane", "Align in X/X Plane"]:
-                            st.info("📌 请在下方选择需要参与该对齐/拟合计算的目标点（可多选）：")
-                            selected_transform_pts = st.multiselect(
-                                "Select Target Points for Calculation",
-                                options=all_point_ids,
-                                default=all_point_ids[:min(3, len(all_point_ids))],
-                                key="tr_selected_pts"
-                            )
-                            if t_action == "Fit to horizontal plane":
-                                target_z_input = st.number_input("Target Horizontal Plane Elevation (Z)", value=0.0, step=0.01, key="tr_target_z")
-                            elif t_action == "Align in X/X Plane":
-                                plane_axis_choice = st.selectbox("Select Alignment Plane", ["X/Y Plane", "X/Z Plane", "Y/Z Plane"], key="tr_plane_axis")
-                        
-                        elif t_action == "Custom Coord Set (Translate by delta)":
-                            c_dx = st.number_input("Delta X/E", value=0.0, step=1.0, key="tr_dx")
-                            c_dy = st.number_input("Delta Y/N", value=0.0, step=1.0, key="tr_dy")
-                            c_dz = st.number_input("Delta Z/EL", value=0.0, step=1.0, key="tr_dz")
-                        elif "Rotate" in t_action:
-                            rot_angle = st.number_input("Rotation Angle (Degrees)", value=0.0, step=0.5, key="tr_angle")
-                            
-                        if st.button("Apply Transform Action", key="apply_transform_btn"):
-                            if "original_final_result" not in st.session_state:
-                                st.session_state["original_final_result"] = st.session_state["df_final_result"].copy()
-                                
-                            cur_df = st.session_state["df_final_result"]
-                            
-                            if t_action == "Set to (0,0,0)":
-                                centroid = cur_df[["X", "Y", "Z"]].mean().values
-                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, -centroid[0], -centroid[1], -centroid[2])
-                                st.success("Successfully set origin to (0,0,0).")
-                            elif t_action == "Set to (100,100,100)":
-                                target = np.array([100.0, 100.0, 100.0])
-                                centroid = cur_df[["X", "Y", "Z"]].mean().values
-                                delta = target - centroid
-                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, delta[0], delta[1], delta[2])
-                                st.success("Successfully translated coordinates to target (100,100,100).")
-                            elif t_action == "Custom Coord Set (Translate by delta)":
-                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, c_dx, c_dy, c_dz)
-                                st.success(f"Successfully translated by DX:{c_dx}, DY:{c_dy}, DZ:{c_dz}.")
-                            elif t_action == "Fit to horizontal plane":
-                                if not selected_transform_pts:
-                                    st.warning("Please select at least one point for horizontal plane fitting.")
-                                else:
-                                    st.session_state["df_final_result"] = TransformEngine.fit_to_horizontal_plane(cur_df, selected_transform_pts, target_z_input)
-                                    st.success(f"Successfully fitted selected points to horizontal plane at Z = {target_z_input}.")
-                            elif t_action == "Align in X/X Plane":
-                                if not selected_transform_pts:
-                                    st.warning("Please select points for alignment.")
-                                else:
-                                    st.session_state["df_final_result"] = TransformEngine.align_in_plane(cur_df, selected_transform_pts, plane_axis_choice)
-                                    st.success(f"Successfully aligned selected points in {plane_axis_choice}.")
-                            elif "Rotate E/N plane" in t_action:
-                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "E/N plane (X/Y)", rot_angle)
-                                st.success(f"Rotated E/N plane by {rot_angle} degrees.")
-                            elif "Rotate N/EL plane" in t_action:
-                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "N/EL plane (Y/Z)", rot_angle)
-                                st.success(f"Rotated N/EL plane by {rot_angle} degrees.")
-                            elif "Rotate E/EL plane" in t_action:
-                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "E/EL plane (X/Z)", rot_angle)
-                                st.success(f"Rotated E/EL plane by {rot_angle} degrees.")
-                            elif "Rollback" in t_action:
-                                if "original_final_result" in st.session_state:
-                                    st.session_state["df_final_result"] = st.session_state["original_final_result"].copy()
-                                    st.success("Successfully rolled back to original combined results.")
-                            st.rerun()
-
                     col_res1, col_res2 = st.columns(2)
 
                     with col_res1:
