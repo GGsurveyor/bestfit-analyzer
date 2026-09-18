@@ -555,66 +555,121 @@ if uploaded_raw is not None:
 
                             final_coords = np.dot(combined_df[["X", "Y", "Z"]].values, R_final.T) + T_final
                             df_final_result = pd.DataFrame(final_coords, index=combined_df.index, columns=["X", "Y", "Z"])
-                            st.session_state["df_final_result"] = df_final_result
+                            st.session_state["df_step3_result"] = df_final_result
 
                             err_final = BestFitEngine.calculate_error(df_final_result.loc[active_design_pts], df_design.loc[active_design_pts])
-                            st.session_state["err_final"] = err_final
+                            st.session_state["err_step3"] = err_final
+                            
+                            # 清除旧的 Step 4 调整状态（每次在Step3重新计算后需重新选择Step4调整）
+                            if "df_final_result" in st.session_state:
+                                del st.session_state["df_final_result"]
+                            if "err_final" in st.session_state:
+                                del st.session_state["err_final"]
+
                             st.success("🎉 Final Combined BestFit completed successfully!")
                     else:
                         st.warning("⚠️ At least 3 active common design points are required.")
                 else:
-                    st.session_state["df_final_result"] = combined_df
-                    st.info("ℹ️ Design Points not provided. Merged stations are ready for Step 4 adjustment and conversion below.")
+                    st.session_state["df_step3_result"] = combined_df
+                    st.info("ℹ️ Design Points not provided. Merged stations are ready for Step 3 preview or Step 4 adjustment.")
 
                 # -----------------------------------------------------------------
-                # 🌐 Step 4: 独立出来的合并后调整、偏差分析与 CAD 导出
+                # 🌐 Step 3 默认自带的结果预览与偏差分析
                 # -----------------------------------------------------------------
+                if "df_step3_result" in st.session_state:
+                    st.markdown("---")
+                    st.subheader("📋 Step 3: Final Result Preview & Deviation Analysis")
+                    
+                    col_s3_1, col_s3_2 = st.columns(2)
+                    with col_s3_1:
+                        st.markdown("#### 📋 Final Result Preview (Step 3)")
+                        st.dataframe(st.session_state["df_step3_result"].style.format("{:.4f}"), use_container_width=True)
+
+                    with col_s3_2:
+                        st.markdown("#### 📊 Final Deviation Analysis (Step 3)")
+                        if "err_step3" in st.session_state:
+                            st.dataframe(
+                                st.session_state["err_step3"]
+                                .style.format({"Delta E": "{:.4f}", "Delta N": "{:.4f}", "Delta El": "{:.4f}", "Total_Error": "{:.4f}"})
+                                .map(highlight_excess_error, subset=["Delta E", "Delta N", "Delta El", "Total_Error"]),
+                                use_container_width=True,
+                            )
+                        else:
+                            st.info("No deviation data available (Design points not used).")
+
+                    step3_csv = st.session_state["df_step3_result"].reset_index().to_csv(index=False, header=False, float_format="%.4f")
+                    st.download_button(
+                        label="📥 Download Step 3 Final Result [station-Combine All_after BestFit.CSV]",
+                        data=step3_csv,
+                        file_name="station-Combine_All_after_BestFit_Result.CSV",
+                        mime="text/csv",
+                    )
+
+                # -----------------------------------------------------------------
+                # 🌐 Step 4: 选择性变换、调整、可视预览与 CAD/PDF 导出
+                # -----------------------------------------------------------------
+                st.markdown("---")
+                st.subheader("🎯 Step 4: Transform / Adjust Merged Stations & Post-Adjustment Visuals & CAD Export")
+                
+                with st.expander("🌐 [Option C: Final Stage] Transform / Adjust Merged Stations", expanded=True):
+                    st.write("### 🎛️ Final Stage Adjustments on Merged Data")
+                    t_action_final = st.selectbox(
+                        "Select Transform Action for Merged Data",
+                        ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
+                        key="final_tr_action"
+                    )
+                    
+                    base_df_for_step4 = st.session_state.get("df_step3_result", combined_df)
+                    combined_pts = list(base_df_for_step4.index)
+                    selected_final_pts = []
+                    
+                    if t_action_final == "Fit to horizontal plane":
+                        selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit", options=combined_pts, key="final_tr_pts")
+                        target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
+                    elif t_action_final == "Translate (Delta)":
+                        f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
+                        f_dy = st.number_input("Delta Y for Merged Data", value=0.0, step=1.0, key="final_dy")
+                        f_dz = st.number_input("Delta Z for Merged Data", value=0.0, step=1.0, key="final_dz")
+                    elif "Rotate" in t_action_final:
+                        f_angle = st.number_input("Rotation Angle for Merged Data", value=0.0, step=0.5, key="final_angle")
+
+                    if st.button("Apply Transform to Merged Data (Trigger Step 4 Output)", key="apply_final_tr_btn", type="primary"):
+                        if t_action_final == "None":
+                            st.session_state["df_final_result"] = base_df_for_step4.copy()
+                            if "err_step3" in st.session_state:
+                                st.session_state["err_final"] = st.session_state["err_step3"].copy()
+                            st.success("Applied 'None' (Copied Step 3 result to Step 4).")
+                        else:
+                            if t_action_final == "Translate (Delta)":
+                                res_tf = TransformEngine.translate(base_df_for_step4, f_dx, f_dy, f_dz)
+                            elif t_action_final == "Fit to horizontal plane":
+                                res_tf = TransformEngine.fit_to_horizontal_plane(base_df_for_step4, selected_final_pts, target_z_final)
+                            elif "Rotate" in t_action_final:
+                                res_tf = TransformEngine.rotate_plane(base_df_for_step4, "E/N plane (X/Y)", f_angle)
+                            else:
+                                res_tf = base_df_for_step4.copy()
+                                
+                            st.session_state["df_final_result"] = res_tf
+                            # 如果有设计点，重新计算对应偏差
+                            if df_design is not None and not df_design.empty:
+                                common_d_f = df_design.index.intersection(res_tf.index)
+                                if len(common_d_f) > 0:
+                                    st.session_state["err_final"] = BestFitEngine.calculate_error(res_tf.loc[common_d_f], df_design.loc[common_d_f])
+                            st.success("Successfully applied Step 4 transformation and generated custom analysis/preview!")
+                        st.rerun()
+
+                # 只有在 Step 4 中点击过 Apply 并且存在 df_final_result 时，才显示 Step 4 的预览、偏差分析和下载
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
-                    st.subheader("🎯 Step 4: Transform, Visual Deviation Analysis & CAD Export (Merged Data)")
-
-                    with st.expander("🌐 [Option C: Final Stage] Transform / Adjust Merged Stations", expanded=False):
-                        st.write("### 🎛️ Final Stage Adjustments on Merged Data")
-                        t_action_final = st.selectbox(
-                            "Select Transform Action for Merged Data",
-                            ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
-                            key="final_tr_action"
-                        )
-                        
-                        current_res_df = st.session_state["df_final_result"]
-                        combined_pts = list(current_res_df.index)
-                        selected_final_pts = []
-                        if t_action_final == "Fit to horizontal plane":
-                            selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit", options=combined_pts, key="final_tr_pts")
-                            target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
-                        elif t_action_final == "Translate (Delta)":
-                            f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
-                            f_dy = st.number_input("Delta Y for Merged Data", value=0.0, step=1.0, key="final_dy")
-                            f_dz = st.number_input("Delta Z for Merged Data", value=0.0, step=1.0, key="final_dz")
-                        elif "Rotate" in t_action_final:
-                            f_angle = st.number_input("Rotation Angle for Merged Data", value=0.0, step=0.5, key="final_angle")
-
-                        if st.button("Apply Transform to Merged Data", key="apply_final_tr_btn"):
-                            target_df = st.session_state["df_final_result"]
-                            if t_action_final == "Translate (Delta)":
-                                st.session_state["df_final_result"] = TransformEngine.translate(target_df, f_dx, f_dy, f_dz)
-                                st.success("Successfully translated merged data.")
-                            elif t_action_final == "Fit to horizontal plane":
-                                st.session_state["df_final_result"] = TransformEngine.fit_to_horizontal_plane(target_df, selected_final_pts, target_z_final)
-                                st.success("Successfully fitted merged data to horizontal plane.")
-                            elif "Rotate" in t_action_final:
-                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(target_df, "E/N plane (X/Y)", f_angle)
-                                st.success("Successfully rotated merged data.")
-                            st.rerun()
-
+                    st.markdown("### 📊 Step 4: Post-Adjustment Result Preview & Deviation Analysis")
                     col_res1, col_res2 = st.columns(2)
 
                     with col_res1:
-                        st.markdown("#### 📋 Final Result Preview")
+                        st.markdown("#### 📋 Step 4 Result Preview")
                         st.dataframe(st.session_state["df_final_result"].style.format("{:.4f}"), use_container_width=True)
 
                     with col_res2:
-                        st.markdown("#### 📊 Final Deviation Analysis")
+                        st.markdown("#### 📊 Step 4 Deviation Analysis")
                         if "err_final" in st.session_state:
                             st.dataframe(
                                 st.session_state["err_final"]
@@ -623,18 +678,18 @@ if uploaded_raw is not None:
                                 use_container_width=True,
                             )
                         else:
-                            st.info("No deviation data available.")
+                            st.info("No deviation data available for Step 4 adjustment.")
 
-                    final_csv = st.session_state["df_final_result"].reset_index().to_csv(index=False, header=False, float_format="%.4f")
+                    step4_csv = st.session_state["df_final_result"].reset_index().to_csv(index=False, header=False, float_format="%.4f")
                     st.download_button(
-                        label="📥 Download Final Result [station-Combine All_after BestFit.CSV]",
-                        data=final_csv,
-                        file_name="station-Combine_All_after_BestFit_Result.CSV",
+                        label="📥 Download Step 4 Adjusted Result [station-Combine All_Step4_after.CSV]",
+                        data=step4_csv,
+                        file_name="station-Combine_All_Step4_after_Transform.CSV",
                         mime="text/csv",
                     )
 
                     st.markdown("---")
-                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (From Result)")
+                    st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (From Step 4 Result)")
 
                     dxf_df = st.session_state["df_final_result"].reset_index()
                     dxf_df.columns = ["ID", "X", "Y", "Z"]
@@ -827,23 +882,23 @@ if uploaded_raw is not None:
                     col_dl1, col_dl2 = st.columns(2)
                     with col_dl1:
                         st.download_button(
-                            "⬇️ Download Converted DXF File",
+                            "⬇️ Download Step 4 DXF File",
                             data=dxf_data,
-                            file_name="final_station_layout.dxf",
+                            file_name="step4_adjusted_station_layout.dxf",
                             mime="application/dxf",
                             use_container_width=True,
                         )
                     with col_dl2:
                         st.download_button(
-                            "⬇️ Download AutoCAD Script (.SCR)",
+                            "⬇️ Download Step 4 AutoCAD Script (.SCR)",
                             data=scr_data,
-                            file_name="final_station_layout.scr",
+                            file_name="step4_adjusted_station_layout.scr",
                             mime="text/plain",
                             use_container_width=True,
                         )
 
                     st.markdown("---")
-                    st.subheader("📄 Comprehensive PDF Report Export")
+                    st.subheader("📄 Comprehensive PDF Report Export (Step 4)")
 
                     include_dev_in_pdf = st.checkbox("Include '3. Deviation Analysis Report' in PDF", value=True, key="include_dev_pdf_checkbox")
 
@@ -853,9 +908,9 @@ if uploaded_raw is not None:
                         include_deviation=include_dev_in_pdf
                     )
                     st.download_button(
-                        label="📥 Download Comprehensive PDF Report",
+                        label="📥 Download Step 4 Comprehensive PDF Report",
                         data=pdf_bytes,
-                        file_name="BestFit_Comprehensive_Report.pdf",
+                        file_name="Step4_BestFit_Comprehensive_Report.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                     )
