@@ -58,7 +58,45 @@ class BestFitEngine:
         return err
 
 
-# 样式高亮函数：数值绝对值超过 0.002 时显示红色粗体
+# 坐标变换计算引擎（对应新增的 Transform 功能）
+class TransformEngine:
+
+    @staticmethod
+    def translate(df, dx, dy, dz):
+        res = df.copy()
+        res["X"] += dx
+        res["Y"] += dy
+        res["Z"] += dz
+        return res
+
+    @staticmethod
+    def rotate_plane(df, plane_type, angle_deg):
+        res = df.copy()
+        rad = np.radians(angle_deg)
+        cos_a, sin_a = np.cos(rad), np.sin(rad)
+
+        if plane_type == "E/N plane (X/Y)":
+            # 绕 Z 轴旋转
+            x = res["X"].values
+            y = res["Y"].values
+            res["X"] = x * cos_a - y * sin_a
+            res["Y"] = x * sin_a + y * cos_a
+        elif plane_type == "N/EL plane (Y/Z)":
+            # 绕 X 轴旋转
+            y = res["Y"].values
+            z = res["Z"].values
+            res["Y"] = y * cos_a - z * sin_a
+            res["Z"] = y * sin_a + z * cos_a
+        elif plane_type == "E/EL plane (X/Z)":
+            # 绕 Y 轴旋转
+            x = res["X"].values
+            z = res["Z"].values
+            res["X"] = x * cos_a + z * sin_a
+            res["Z"] = -x * sin_a + z * cos_a
+        return res
+
+
+# 样式高亮函数
 def highlight_excess_error(val):
     try:
         if abs(float(val)) > 0.002:
@@ -113,7 +151,6 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
 
     current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Summary Section
     pdf.set_font("helvetica", "B", 12)
     pdf.cell(0, 8, "1. Executive Summary", 0, 1, "L")
     pdf.set_font("helvetica", "", 10)
@@ -125,7 +162,6 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
     )
     pdf.ln(4)
 
-    # Final Results Table
     pdf.set_font("helvetica", "B", 12)
     pdf.cell(0, 8, "2. Final Coordinates Results", 0, 1, "L")
     pdf.set_font("helvetica", "B", 9)
@@ -144,7 +180,6 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
 
     pdf.ln(6)
 
-    # Deviation Analysis Table (Conditional check)
     if include_deviation and df_err is not None and not df_err.empty:
         pdf.set_font("helvetica", "B", 12)
         pdf.cell(0, 8, "3. Deviation Analysis Report", 0, 1, "L")
@@ -166,7 +201,6 @@ def generate_pdf_report(df_final, df_err, include_deviation=True):
     return bytes(pdf.output())
 
 
-# CAD Color Mapping (Plotly friendly color names)
 CAD_COLORS = {
     "White (Default)": ("white", 7),
     "Red": ("red", 1),
@@ -189,11 +223,10 @@ st.title(
     " Fung"
 )
 st.markdown(
-    "Complete Raw Data editing, Station splitting, BestFit analysis, and"
-    " export to CSV / DXF / SCR / PDF formats."
+    "Complete Raw Data editing, Station splitting, BestFit analysis,"
+    " coordinate transforms, and export to CSV / DXF / SCR / PDF formats."
 )
 
-# Sidebar Uploads for CSV files
 st.sidebar.header("📂 Data Uploads")
 uploaded_design = st.sidebar.file_uploader(
     "Upload Design Points CSV (Optional)", type=["csv"], key="design_file"
@@ -679,6 +712,70 @@ if uploaded_raw is not None:
 
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
+                    
+                    # ---------------------------------------------------------
+                    # 新增：集成图示中的高级 Transform（坐标变换）控制面板
+                    # ---------------------------------------------------------
+                    with st.expander("🌐 Advanced Transform Operations (Coordinate Systems, Translation, Rotation & Rollback)", expanded=False):
+                        st.write("### 🎛️ Transform Menu Operations")
+                        
+                        t_action = st.selectbox(
+                            "Select Transform Action",
+                            [
+                                "None",
+                                "Set to (0,0,0)",
+                                "Set to (100,100,100)",
+                                "Custom Coord Set (Translate by delta)",
+                                "Rotate E/N plane (X/Y)",
+                                "Rotate N/EL plane (Y/Z)",
+                                "Rotate E/EL plane (X/Z)",
+                                "Rollback / Reset Original Results"
+                            ],
+                            key="transform_menu_action"
+                        )
+                        
+                        if t_action == "Custom Coord Set (Translate by delta)":
+                            c_dx = st.number_input("Delta X/E", value=0.0, step=1.0, key="tr_dx")
+                            c_dy = st.number_input("Delta Y/N", value=0.0, step=1.0, key="tr_dy")
+                            c_dz = st.number_input("Delta Z/EL", value=0.0, step=1.0, key="tr_dz")
+                        elif "Rotate" in t_action:
+                            rot_angle = st.number_input("Rotation Angle (Degrees)", value=0.0, step=0.5, key="tr_angle")
+                            
+                        if st.button("Apply Transform Action", key="apply_transform_btn"):
+                            if "original_final_result" not in st.session_state:
+                                st.session_state["original_final_result"] = st.session_state["df_final_result"].copy()
+                                
+                            cur_df = st.session_state["df_final_result"]
+                            
+                            if t_action == "Set to (0,0,0)":
+                                # 将第一个点或质心平移至 (0,0,0)
+                                centroid = cur_df[["X", "Y", "Z"]].mean().values
+                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, -centroid[0], -centroid[1], -centroid[2])
+                                st.success("Successfully set centroid/origin to (0,0,0).")
+                            elif t_action == "Set to (100,100,100)":
+                                target = np.array([100.0, 100.0, 100.0])
+                                centroid = cur_df[["X", "Y", "Z"]].mean().values
+                                delta = target - centroid
+                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, delta[0], delta[1], delta[2])
+                                st.success("Successfully translated coordinates to target (100,100,100).")
+                            elif t_action == "Custom Coord Set (Translate by delta)":
+                                st.session_state["df_final_result"] = TransformEngine.translate(cur_df, c_dx, c_dy, c_dz)
+                                st.success(f"Successfully translated by DX:{c_dx}, DY:{c_dy}, DZ:{c_dz}.")
+                            elif "Rotate E/N plane" in t_action:
+                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "E/N plane (X/Y)", rot_angle)
+                                st.success(f"Rotated E/N plane by {rot_angle} degrees.")
+                            elif "Rotate N/EL plane" in t_action:
+                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "N/EL plane (Y/Z)", rot_angle)
+                                st.success(f"Rotated N/EL plane by {rot_angle} degrees.")
+                            elif "Rotate E/EL plane" in t_action:
+                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(cur_df, "E/EL plane (X/Z)", rot_angle)
+                                st.success(f"Rotated E/EL plane by {rot_angle} degrees.")
+                            elif "Rollback" in t_action:
+                                if "original_final_result" in st.session_state:
+                                    st.session_state["df_final_result"] = st.session_state["original_final_result"].copy()
+                                    st.success("Successfully rolled back to original combined results.")
+                            st.rerun()
+
                     col_res1, col_res2 = st.columns(2)
 
                     with col_res1:
@@ -1075,7 +1172,6 @@ if uploaded_raw is not None:
                     st.markdown("---")
                     st.subheader("📄 Comprehensive PDF Report Export")
                     
-                    # 增加 PDF 报告内容选项勾选框
                     include_dev_in_pdf = st.checkbox(
                         "Include '3. Deviation Analysis Report' in PDF",
                         value=True,
