@@ -58,7 +58,7 @@ class BestFitEngine:
         return err
 
 
-# 坐标变换计算引擎（对应新增的 Transform 菜单功能）
+# 坐标变换计算引擎（包含平移、各平面旋转等功能）
 class TransformEngine:
 
     @staticmethod
@@ -708,9 +708,7 @@ if uploaded_raw is not None:
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
 
-                    # ---------------------------------------------------------
-                    # 高级 Transform（坐标变换）控制面板（对应您提供的功能截图）
-                    # ---------------------------------------------------------
+                    # 高级 Transform（坐标变换）控制面板
                     with st.expander("🌐 Advanced Transform Operations (Set 0,0,0, Translate, Rotate & Rollback)", expanded=True):
                         st.write("### 🎛️ Transform Menu Operations")
                         
