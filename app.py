@@ -102,10 +102,10 @@ class TransformEngine:
         return res
 
     @staticmethod
-    def fit_to_horizontal_plane(df, selected_points, target_z=0.0):
+    def fit_to_horizontal_plane(df, selected_points=None, target_z=0.0):
         """
         3D Plane Fit & Leveling (Least Squares SVD Plane Fitting + Rotation)
-        Fits a 3D plane to selected points and rotates the point cloud so that the plane becomes horizontal.
+        Fits a 3D plane to selected points (or all points if none selected) and rotates the point cloud so that the plane becomes horizontal.
         """
         res = df.copy()
         x_col = "X/E" if "X/E" in res.columns else ("X" if "X" in res.columns else res.columns[1])
@@ -113,17 +113,19 @@ class TransformEngine:
         z_col = "Z/EL" if "Z/EL" in res.columns else ("Z" if "Z" in res.columns else res.columns[3])
         p_col = res.columns[0]
 
-        if not selected_points or len(selected_points) == 0:
-            return res
+        if selected_points is not None and len(selected_points) > 0:
+            sub = res[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
+            if sub.empty:
+                fit_pts_xyz = res[[x_col, y_col, z_col]].values.astype(float)
+            else:
+                fit_pts_xyz = sub[[x_col, y_col, z_col]].values.astype(float)
+        else:
+            fit_pts_xyz = res[[x_col, y_col, z_col]].values.astype(float)
 
-        sub = res[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
-        if sub.empty:
-            return res
-
-        pts_xyz = sub[[x_col, y_col, z_col]].values.astype(float)
+        all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
         
-        centroid = np.mean(pts_xyz, axis=0)
-        centered = pts_xyz - centroid
+        centroid = np.mean(fit_pts_xyz, axis=0)
+        centered = fit_pts_xyz - centroid
         _, _, Vt = np.linalg.svd(centered)
         normal = Vt[2, :] 
         if normal[2] < 0:
@@ -132,17 +134,27 @@ class TransformEngine:
         target_normal = np.array([0.0, 0.0, 1.0])
         v = np.cross(normal, target_normal)
         c = np.dot(normal, target_normal)
-        if np.linalg.norm(v) < 1e-8:
+        
+        if np.isclose(c, 1.0):
             R = np.eye(3)
+        elif np.isclose(c, -1.0):
+            R = np.diag([1.0, -1.0, -1.0])
         else:
-            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-            R = np.eye(3) + vx + np.dot(vx, vx) * (1 - c) / (np.linalg.norm(v)**2)
+            s = np.linalg.norm(v)
+            if s < 1e-8:
+                R = np.eye(3)
+            else:
+                vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+                R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
             
-        all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
         rotated = np.dot(all_xyz - centroid, R.T) + centroid
         
-        rotated_sub = rotated[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
-        mean_z_rot = np.mean(rotated_sub[:, 2])
+        if selected_points is not None and len(selected_points) > 0 and not sub.empty:
+            rotated_sub = rotated[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
+            mean_z_rot = np.mean(rotated_sub[:, 2])
+        else:
+            mean_z_rot = np.mean(rotated[:, 2])
+            
         delta_z = target_z - mean_z_rot
         rotated[:, 2] += delta_z
         
@@ -387,7 +399,7 @@ if uploaded_raw is not None:
             selected_pre_pts = []
             
             if t_action_pre == "Fit to horizontal plane (3D Plane Fit)":
-                selected_pre_pts = st.multiselect("Select Target Points for 3D Plane Fit", options=raw_point_ids, key="pre_tr_selected_pts")
+                selected_pre_pts = st.multiselect("Select Target Points for 3D Plane Fit (Leave empty to use all points)", options=raw_point_ids, key="pre_tr_selected_pts")
                 target_z_pre = st.number_input("Target Elevation (Z)", value=0.0, step=0.01, key="pre_tr_target_z")
             elif t_action_pre == "Custom Coord Set (Translate by delta)":
                 p_dx = st.number_input("Delta X/E", value=0.0, step=1.0, key="pre_tr_dx")
@@ -496,7 +508,7 @@ if uploaded_raw is not None:
                         stn_curr_pts = list(stn_calc_indexed.index)
                         selected_post_pts = []
                         if t_action_post == "Fit to horizontal plane (3D Plane Fit)":
-                            selected_post_pts = st.multiselect(f"Select Points for {s_name} 3D Plane Fit", options=stn_curr_pts, key=f"post_tr_pts_{s_name}")
+                            selected_post_pts = st.multiselect(f"Select Points for {s_name} 3D Plane Fit (Leave empty to use all)", options=stn_curr_pts, key=f"post_tr_pts_{s_name}")
                             target_z_post = st.number_input(f"Target Z for {s_name}", value=0.0, step=0.01, key=f"post_tr_z_{s_name}")
                         elif t_action_post == "Translate (Delta)":
                             s_dx = st.number_input(f"Delta X for {s_name}", value=0.0, step=1.0, key=f"post_dx_{s_name}")
@@ -646,7 +658,7 @@ if uploaded_raw is not None:
                     selected_final_pts = []
                     
                     if t_action_final == "Fit to horizontal plane (3D Plane Fit)":
-                        selected_final_pts = st.multiselect("Select Points for Final 3D Plane Fit", options=combined_pts, key="final_tr_pts")
+                        selected_final_pts = st.multiselect("Select Points for Final 3D Plane Fit (Leave empty to use all)", options=combined_pts, key="final_tr_pts")
                         target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
                     elif t_action_final == "Translate (Delta)":
                         f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
@@ -683,7 +695,6 @@ if uploaded_raw is not None:
                     st.markdown("---")
                     st.subheader("📐 CAD Layout Preview & DXF/SCR Converter (Source Selection)")
                     
-                    # 💡 增加数据源选择（Step 3 还是 Step 4）
                     cad_source_choice = st.radio(
                         "Select Data Source for CAD Layout & Export",
                         ["Step 3 Result (Merged & BestFit)", "Step 4 Result (Custom Transformed/Adjusted)"],
