@@ -55,7 +55,6 @@ class BestFitEngine:
         err["Total_Error"] = np.sqrt(
             err["Delta E"] ** 2 + err["Delta N"] ** 2 + err["Delta El"] ** 2
         )
-        # Ensure unique index to avoid Styler errors
         if not err.index.is_unique:
             err = err.loc[~err.index.duplicated(keep="first")]
         return err
@@ -114,41 +113,45 @@ class TransformEngine:
         if selected_points is not None and len(selected_points) > 0:
             sub = res[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
             if sub.empty:
-                fit_pts_xyz = res[[x_col, y_col, z_col]].values.astype(float)
+                fit_pts = res[[x_col, y_col, z_col]].values.astype(float)
             else:
-                fit_pts_xyz = sub[[x_col, y_col, z_col]].values.astype(float)
+                fit_pts = sub[[x_col, y_col, z_col]].values.astype(float)
         else:
-            fit_pts_xyz = res[[x_col, y_col, z_col]].values.astype(float)
+            fit_pts = res[[x_col, y_col, z_col]].values.astype(float)
 
         all_xyz = res[[x_col, y_col, z_col]].values.astype(float)
         
-        centroid = np.mean(fit_pts_xyz, axis=0)
-        centered = fit_pts_xyz - centroid
-        _, _, Vt = np.linalg.svd(centered)
-        normal = Vt[2, :] 
-        if normal[2] < 0:
-            normal = -normal
-            
-        target_normal = np.array([0.0, 0.0, 1.0])
-        v = np.cross(normal, target_normal)
-        c = np.dot(normal, target_normal)
+        # Least squares plane fit: Z = a*X + b*Y + c
+        X_vals = fit_pts[:, 0]
+        Y_vals = fit_pts[:, 1]
+        Z_vals = fit_pts[:, 2]
         
-        if np.isclose(c, 1.0):
-            R = np.eye(3)
-        elif np.isclose(c, -1.0):
-            R = np.diag([1.0, -1.0, -1.0])
-        else:
-            s = np.linalg.norm(v)
-            if s < 1e-8:
-                R = np.eye(3)
-            else:
-                vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-                R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
-            
-        rotated = np.dot(all_xyz - centroid, R.T) + centroid
+        A = np.column_stack([X_vals, Y_vals, np.ones_like(X_vals)])
+        coef, _, _, _ = np.linalg.lstsq(A, Z_vals, rcond=None)
+        a, b, c = coef
+        
+        angle_x = np.arctan(b)
+        angle_y = np.arctan(a)
+        
+        Rx = np.array([
+            [1, 0, 0],
+            [0, np.cos(-angle_x), -np.sin(-angle_x)],
+            [0, np.sin(-angle_x), np.cos(-angle_x)]
+        ])
+        Ry = np.array([
+            [np.cos(angle_y), 0, np.sin(angle_y)],
+            [0, 1, 0],
+            [-np.sin(angle_y), 0, np.cos(angle_y)]
+        ])
+        
+        R = np.dot(Rx, Ry)
+        
+        centroid = np.mean(fit_pts, axis=0)
+        centered_all = all_xyz - centroid
+        rotated = np.dot(centered_all, R.T) + centroid
         
         if selected_points is not None and len(selected_points) > 0 and not sub.empty:
-            rotated_sub = rotated[res[p_col].astype(str).str.strip().isin([str(p).strip() for p in selected_points])]
+            rotated_sub = np.dot(fit_pts - centroid, R.T) + centroid
             mean_z_rot = np.mean(rotated_sub[:, 2])
         else:
             mean_z_rot = np.mean(rotated[:, 2])
@@ -463,7 +466,6 @@ if uploaded_raw is not None:
 
                     stn_raw_df = df_raw_final_check.iloc[s_start:s_end].copy()
                     
-                    # Ensure unique index for indexing
                     stn_indexed_prep = stn_raw_df.copy()
                     stn_indexed_prep = stn_indexed_prep.loc[~stn_indexed_prep["Point"].duplicated(keep="first")]
                     stn_indexed = stn_indexed_prep.set_index("Point")
@@ -584,7 +586,6 @@ if uploaded_raw is not None:
 
             if len(st.session_state["station_fitted_dfs"]) == len(station_configs):
                 combined_df = pd.concat(list(st.session_state["station_fitted_dfs"].values()))
-                # Ensure unique index in combined dataframe
                 if not combined_df.index.is_unique:
                     combined_df = combined_df.loc[~combined_df.index.duplicated(keep="first")]
 
