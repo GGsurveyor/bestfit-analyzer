@@ -58,7 +58,7 @@ class BestFitEngine:
         return err
 
 
-# 坐标变换与高级对齐引擎（支持分站前、分站后及合并后自由调用）
+# 坐标变换与高级对齐引擎
 class TransformEngine:
 
     @staticmethod
@@ -103,7 +103,6 @@ class TransformEngine:
 
     @staticmethod
     def fit_to_horizontal_plane(df, selected_points, target_z=0.0):
-        """将指定点集的高程拟合调平至目标高程平面"""
         res = df.copy()
         z_col = "Z/EL" if "Z/EL" in res.columns else "Z"
         if selected_points and len(selected_points) > 0:
@@ -209,7 +208,7 @@ st.set_page_config(
 )
 
 st.title("🏗️ 2D/3D Multi-Station BestFit & CAD DXF/SCR Converter - Made by Ng Yit Fung")
-st.markdown("Complete Raw Data editing, Station splitting, Pre/Post/Final Transforms, BestFit analysis, and export to CSV / DXF / SCR / PDF formats.")
+st.markdown("Complete Raw Data editing, Station splitting, Pre/Post Transforms, BestFit analysis, and export to CSV / DXF / SCR / PDF formats.")
 
 st.sidebar.header("📂 Data Uploads")
 uploaded_design = st.sidebar.file_uploader("Upload Design Points CSV (Optional)", type=["csv"], key="design_file")
@@ -535,49 +534,8 @@ if uploaded_raw is not None:
             if len(st.session_state["station_fitted_dfs"]) == len(station_configs):
                 combined_df = pd.concat(list(st.session_state["station_fitted_dfs"].values()))
 
-                # -----------------------------------------------------------------
-                # 🌐 选项C：合并后 / 最终阶段（Final Stage）整体平移、旋转与调平
-                # -----------------------------------------------------------------
-                with st.expander("🌐 [Option C: Final Stage] Transform / Adjust Merged Stations (After Step 2)", expanded=False):
-                    st.write("### 🎛️ Final Stage Adjustments on Merged Data")
-                    t_action_final = st.selectbox(
-                        "Select Transform Action for Merged Data",
-                        ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
-                        key="final_tr_action"
-                    )
-                    
-                    combined_pts = list(combined_df.index)
-                    selected_final_pts = []
-                    if t_action_final == "Fit to horizontal plane":
-                        selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit", options=combined_pts, key="final_tr_pts")
-                        target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
-                    elif t_action_final == "Translate (Delta)":
-                        f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
-                        f_dy = st.number_input("Delta Y for Merged Data", value=0.0, step=1.0, key="final_dy")
-                        f_dz = st.number_input("Delta Z for Merged Data", value=0.0, step=1.0, key="final_dz")
-                    elif "Rotate" in t_action_final:
-                        f_angle = st.number_input("Rotation Angle for Merged Data", value=0.0, step=0.5, key="final_angle")
-
-                    if st.button("Apply Transform to Merged Data", key="apply_final_tr_btn"):
-                        if "combined_transformed_df" not in st.session_state:
-                            st.session_state["combined_transformed_df"] = combined_df.copy()
-                        
-                        target_df = st.session_state["combined_transformed_df"]
-                        if t_action_final == "Translate (Delta)":
-                            st.session_state["combined_transformed_df"] = TransformEngine.translate(target_df, f_dx, f_dy, f_dz)
-                            st.success("Successfully translated merged data.")
-                        elif t_action_final == "Fit to horizontal plane":
-                            st.session_state["combined_transformed_df"] = TransformEngine.fit_to_horizontal_plane(target_df, selected_final_pts, target_z_final)
-                            st.success("Successfully fitted merged data to horizontal plane.")
-                        elif "Rotate" in t_action_final:
-                            st.session_state["combined_transformed_df"] = TransformEngine.rotate_plane(target_df, "E/N plane (X/Y)", f_angle)
-                            st.success("Successfully rotated merged data.")
-                        st.rerun()
-
-                active_combined_df = st.session_state.get("combined_transformed_df", combined_df)
-
                 if df_design is not None and not df_design.empty:
-                    common_design = df_design.index.intersection(active_combined_df.index)
+                    common_design = df_design.index.intersection(combined_df.index)
 
                     col_f1, col_f2 = st.columns(2)
                     final_method = col_f1.selectbox("Select Final Fit Method", ["3D BestFit", "2D BestFit"], key="f_method")
@@ -587,7 +545,7 @@ if uploaded_raw is not None:
 
                     if len(active_design_pts) >= 3:
                         if st.button("✨ Execute Final Combined Fit with Design Points", type="primary", use_container_width=True):
-                            m_final = active_combined_df.loc[active_design_pts, ["X", "Y", "Z"]].values
+                            m_final = combined_df.loc[active_design_pts, ["X", "Y", "Z"]].values
                             d_final = df_design.loc[active_design_pts, ["X", "Y", "Z"]].values
 
                             if "3D" in final_method:
@@ -595,8 +553,8 @@ if uploaded_raw is not None:
                             else:
                                 R_final, T_final = BestFitEngine.best_fit_2d(m_final, d_final)
 
-                            final_coords = np.dot(active_combined_df[["X", "Y", "Z"]].values, R_final.T) + T_final
-                            df_final_result = pd.DataFrame(final_coords, index=active_combined_df.index, columns=["X", "Y", "Z"])
+                            final_coords = np.dot(combined_df[["X", "Y", "Z"]].values, R_final.T) + T_final
+                            df_final_result = pd.DataFrame(final_coords, index=combined_df.index, columns=["X", "Y", "Z"])
                             st.session_state["df_final_result"] = df_final_result
 
                             err_final = BestFitEngine.calculate_error(df_final_result.loc[active_design_pts], df_design.loc[active_design_pts])
@@ -605,11 +563,50 @@ if uploaded_raw is not None:
                     else:
                         st.warning("⚠️ At least 3 active common design points are required.")
                 else:
-                    st.session_state["df_final_result"] = active_combined_df
-                    st.info("ℹ️ Design Points not provided. Merged and transformed stations are ready for DXF/SCR preview and conversion below.")
+                    st.session_state["df_final_result"] = combined_df
+                    st.info("ℹ️ Design Points not provided. Merged stations are ready for Step 4 adjustment and conversion below.")
 
+                # -----------------------------------------------------------------
+                # 🌐 Step 4: 独立出来的合并后调整、偏差分析与 CAD 导出
+                # -----------------------------------------------------------------
                 if "df_final_result" in st.session_state:
                     st.markdown("---")
+                    st.subheader("🎯 Step 4: Transform, Visual Deviation Analysis & CAD Export (Merged Data)")
+
+                    with st.expander("🌐 [Option C: Final Stage] Transform / Adjust Merged Stations", expanded=False):
+                        st.write("### 🎛️ Final Stage Adjustments on Merged Data")
+                        t_action_final = st.selectbox(
+                            "Select Transform Action for Merged Data",
+                            ["None", "Translate (Delta)", "Fit to horizontal plane", "Rotate E/N plane (X/Y)"],
+                            key="final_tr_action"
+                        )
+                        
+                        current_res_df = st.session_state["df_final_result"]
+                        combined_pts = list(current_res_df.index)
+                        selected_final_pts = []
+                        if t_action_final == "Fit to horizontal plane":
+                            selected_final_pts = st.multiselect("Select Points for Final Horizontal Fit", options=combined_pts, key="final_tr_pts")
+                            target_z_final = st.number_input("Target Z for Final Stage", value=0.0, step=0.01, key="final_tr_z")
+                        elif t_action_final == "Translate (Delta)":
+                            f_dx = st.number_input("Delta X for Merged Data", value=0.0, step=1.0, key="final_dx")
+                            f_dy = st.number_input("Delta Y for Merged Data", value=0.0, step=1.0, key="final_dy")
+                            f_dz = st.number_input("Delta Z for Merged Data", value=0.0, step=1.0, key="final_dz")
+                        elif "Rotate" in t_action_final:
+                            f_angle = st.number_input("Rotation Angle for Merged Data", value=0.0, step=0.5, key="final_angle")
+
+                        if st.button("Apply Transform to Merged Data", key="apply_final_tr_btn"):
+                            target_df = st.session_state["df_final_result"]
+                            if t_action_final == "Translate (Delta)":
+                                st.session_state["df_final_result"] = TransformEngine.translate(target_df, f_dx, f_dy, f_dz)
+                                st.success("Successfully translated merged data.")
+                            elif t_action_final == "Fit to horizontal plane":
+                                st.session_state["df_final_result"] = TransformEngine.fit_to_horizontal_plane(target_df, selected_final_pts, target_z_final)
+                                st.success("Successfully fitted merged data to horizontal plane.")
+                            elif "Rotate" in t_action_final:
+                                st.session_state["df_final_result"] = TransformEngine.rotate_plane(target_df, "E/N plane (X/Y)", f_angle)
+                                st.success("Successfully rotated merged data.")
+                            st.rerun()
+
                     col_res1, col_res2 = st.columns(2)
 
                     with col_res1:
